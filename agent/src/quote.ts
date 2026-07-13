@@ -3,7 +3,9 @@
 // native-ETH hub: tokenIn -> ETH -> tokenOut, with each side's "spoke" (v4/v3/v2, or a 2-hop v2 via
 // an intermediate token like $SWOOD -> VIRTUAL -> WETH) resolved on-demand. Mirrors AggRouter.sol so
 // indicative quotes track on-chain execution.
-import { createPublicClient, http, formatUnits, parseUnits, getAddress, type Address, type PublicClient } from "viem";
+import { createPublicClient, http, formatUnits, parseUnits, getAddress, keccak256, encodeAbiParameters, type Address, type Hex, type PublicClient } from "viem";
+import { setDefaultResultOrder } from "node:dns";
+setDefaultResultOrder("ipv4first"); // some ISPs advertise a broken NAT64 IPv6 for the site — fetch flakes unless v4 is preferred
 
 const RPC = process.env.RPC_URL || "https://rpc.mainnet.chain.robinhood.com";
 const SITE = "https://sherwood.spot";
@@ -98,6 +100,63 @@ async function fromEth(c: PublicClient, t: Tok, eth: bigint): Promise<bigint> {
   return v2Quote(c, s.pool, s.via!, await v2Quote(c, s.pool2!, WETH, eth)); // kind 3: WETH->via->token
 }
 
+// ---- v4 pool liquidity (PoolManager extsload) + the tokenized-stock universe ----
+export const POOL_MANAGER = "0x8366a39cc670b4001a1121b8f6a443a643e40951";
+const PM_ABI = [{ type: "function", name: "extsload", stateMutability: "view", inputs: [{ type: "bytes32" }], outputs: [{ type: "bytes32" }] }] as const;
+
+/** The 23 tokenized stocks + their v4 native-ETH pool fee tiers — mirrors web/app/src/routing.ts STOCKS (source of truth). */
+export const STOCKS: Array<{ symbol: string; address: Address; fee: number; ts: number }> = [
+  { symbol: "AAPL", address: "0xaF3D76f1834A1d425780943C99Ea8A608f8a93f9", fee: 50000, ts: 1000 },
+  { symbol: "TSLA", address: "0x322F0929c4625eD5bAd873c95208D54E1c003b2d", fee: 50000, ts: 1000 },
+  { symbol: "NVDA", address: "0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC", fee: 50000, ts: 1000 },
+  { symbol: "AMD", address: "0x86923f96303D656E4aa86D9d42D1e57ad2023fdC", fee: 50000, ts: 1000 },
+  { symbol: "SPCX", address: "0x4a0E65A3EcceC6dBe60AE065F2e7bb85Fae35eEa", fee: 50000, ts: 1000 },
+  { symbol: "GOOGL", address: "0x2e0847E8910a9732eB3fb1bb4b70a580ADAD4FE3", fee: 50000, ts: 1000 },
+  { symbol: "AMZN", address: "0x12f190a9F9d7D37a250758b26824B97CE941bF54", fee: 10000, ts: 200 },
+  { symbol: "APLD", address: "0xb8DBf92F9741c9ac1c32115E78581f23509916FD", fee: 10000, ts: 200 },
+  { symbol: "COIN", address: "0x6330D8C3178a418788dF01a47479c0ce7CCF450b", fee: 10000, ts: 200 },
+  { symbol: "CRWV", address: "0x5f10A1C971B69e47e059e1dC91901B59b3fB49C3", fee: 10000, ts: 200 },
+  { symbol: "F", address: "0x25C288E6D899b9BC30160965aD9644c67e73bE0C", fee: 10000, ts: 200 },
+  { symbol: "GME", address: "0x1b0E319c6A659F002271B69dB8A7df2F911c153E", fee: 10000, ts: 200 },
+  { symbol: "INTC", address: "0xc72b96e0E48ecd4DC75E1e45396e26300BC39681", fee: 10000, ts: 200 },
+  { symbol: "MU", address: "0xfF080c8ce2E5feadaCa0Da81314Ae59D232d4afD", fee: 10000, ts: 200 },
+  { symbol: "NU", address: "0x408c14038a04f7bD235329E26d2bf569ee20e250", fee: 10000, ts: 200 },
+  { symbol: "ORCL", address: "0xb0992820E760d836549ba69BC7598b4af75dEE03", fee: 10000, ts: 200 },
+  { symbol: "PLTR", address: "0x894E1EC2D74FFE5AEF8Dc8A9e84686acCB964F2A", fee: 10000, ts: 200 },
+  { symbol: "QQQ", address: "0xD5f3879160bc7c32ebb4dC785F8a4F505888de68", fee: 10000, ts: 200 },
+  { symbol: "RKLB", address: "0x3b14C39E89D60D627b42a1A4CA45b5bb45Fc12e2", fee: 10000, ts: 200 },
+  { symbol: "SLV", address: "0x411eFb0E7f985935DAec3D4C3ebaEa0d0AD7D89f", fee: 10000, ts: 200 },
+  { symbol: "SPY", address: "0x117cc2133c37B721F49dE2A7a74833232B3B4C0C", fee: 10000, ts: 200 },
+  { symbol: "CRCL", address: "0xdF0992E440dD0be65BD8439b609d6D4366bf1CB5", fee: 100, ts: 1 },
+  { symbol: "SNDK", address: "0xB90A19fF0Af67f7779afF50A882A9CfF42446400", fee: 100, ts: 1 },
+];
+
+/** v4 poolId for the hookless native-ETH pool of `token` — keccak256(abi.encode(PoolKey)); ETH (0x0) always sorts first. */
+export function v4PoolId(token: string, fee: number, ts: number): Hex {
+  return keccak256(encodeAbiParameters(
+    [{ type: "address" }, { type: "address" }, { type: "uint24" }, { type: "int24" }, { type: "address" }],
+    [NATIVE as Address, token as Address, fee, ts, ZERO as Address]));
+}
+
+/** Live liquidity (raw uint128 L units) of the v4 native-ETH pool for `token` — read via PoolManager.extsload. */
+export async function v4Liquidity(token: string, fee: number, ts: number): Promise<bigint> {
+  // pool state base slot = keccak256(abi.encode(poolId, uint256(6))); liquidity lives at base+3 (lower 128 bits).
+  const base = BigInt(keccak256(encodeAbiParameters([{ type: "bytes32" }, { type: "uint256" }], [v4PoolId(token, fee, ts), 6n])));
+  const slot = `0x${(base + 3n).toString(16).padStart(64, "0")}` as Hex;
+  const raw = (await pc.readContract({ address: POOL_MANAGER as Address, abi: PM_ABI, functionName: "extsload", args: [slot] })) as Hex;
+  return BigInt(raw) & ((1n << 128n) - 1n);
+}
+
+/** Human description of a spoke (how a token reaches the ETH hub) with resolved pool/pair addresses. */
+export function describeSpoke(s: Spoke | null | undefined, token: string): string {
+  if (!s) return "native ETH hub (no pool hop)";
+  const pct = (s.fee / 10000).toFixed(2);
+  if (s.kind === 0) return `Uniswap v4 native-ETH pool, fee ${pct}% (tickSpacing ${s.ts}) — poolId ${v4PoolId(token, s.fee, s.ts)} in PoolManager ${POOL_MANAGER}`;
+  if (s.kind === 1) return `Uniswap v3 WETH pool ${s.pool}, fee ${pct}%`;
+  if (s.kind === 2) return `v2 pair ${s.pool}`;
+  return `two-hop v2 via ${s.via}: pair ${s.pool} (token↔via) → pair ${s.pool2} (via↔WETH)`;
+}
+
 /** Expected output for a public tokenIn -> tokenOut swap through the ETH hub (raw units), or null. */
 export async function quotePublic(tokenIn: Tok, tokenOut: Tok, amountIn: bigint): Promise<bigint | null> {
   try {
@@ -107,11 +166,18 @@ export async function quotePublic(tokenIn: Tok, tokenOut: Tok, amountIn: bigint)
 }
 
 // ---- token resolution (symbol or address) via the bundled token list ----
-let LIST: any[] | null = null;
-async function list(): Promise<any[]> {
-  if (LIST) return LIST;
-  try { LIST = (await (await fetch(`${SITE}/tokenlist.json`)).json()) as any[]; } catch { LIST = []; }
-  return LIST!;
+let LISTP: Promise<any[]> | null = null;
+function list(): Promise<any[]> {
+  // shared across concurrent callers; retried, and never cached on failure — the network can flake
+  LISTP ??= (async () => {
+    for (let i = 0; i < 4; i++) {
+      try { return (await (await fetch(`${SITE}/tokenlist.json`)).json()) as any[]; }
+      catch { await new Promise((r) => setTimeout(r, 300 * (i + 1))); }
+    }
+    LISTP = null;
+    return [];
+  })();
+  return LISTP;
 }
 const ALIASES: Record<string, Tok> = {
   ETH: { address: NATIVE as Address, symbol: "ETH", name: "Ether", decimals: 18, spoke: null },

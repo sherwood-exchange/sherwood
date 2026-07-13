@@ -29,6 +29,8 @@ const ACTION_MAP: Record<string, string> = {
   bridge_info: "get_bridge_info",
   explain: "explain_sherwood",
   portfolio: "get_portfolio",
+  liquidity_check: "get_liquidity_check", // arg: symbol (optional)
+  best_route: "get_best_route", // args: token_in, token_out, amount
 };
 
 // requirements.action → offering price (USDC). Matches the per-offering prices on the agent.
@@ -37,6 +39,7 @@ const ACTION_PRICE: Record<string, string> = {
   swood_utility: "0.05", staking: "0.05", fee_tier: "0.05",
   governance: "0.05", token_search: "0.05", bridge_info: "0.05", explain: "0.05",
   portfolio: "0.1",
+  liquidity_check: "0.05", best_route: "0.1",
   swap_execute: process.env.SWAP_PRICE ?? "1", // executes a real Sherwood swap, delivers on RH
   // onramp is priced dynamically (see swapPrice) off the requested ETH size
 };

@@ -18,6 +18,8 @@ const argNames: Record<string, string[]> = {
   get_fee_tier: ["address"],
   get_token_universe: ["query"],
   get_portfolio: ["address"],
+  get_liquidity_check: ["symbol"],
+  get_best_route: ["token_in", "token_out", "amount"],
 };
 
 function usage() {

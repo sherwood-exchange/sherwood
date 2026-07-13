@@ -10,7 +10,7 @@ import {
   ExecutableGameFunctionResponse, ExecutableGameFunctionStatus,
 } from "@virtuals-protocol/game";
 import { createPublicClient, http, formatUnits, formatEther, getAddress, type Address } from "viem";
-import { liveQuote, bridgeQuote, resolveToken, quotePublic } from "./quote.js";
+import { liveQuote, bridgeQuote, resolveToken, quotePublic, isHub, describeSpoke, STOCKS, v4Liquidity } from "./quote.js";
 import { pathToFileURL } from "node:url";
 import dotenv from "dotenv";
 dotenv.config();
@@ -261,9 +261,77 @@ const portfolio = new GameFunction({
   },
 });
 
+// v4 pool depth classification (raw uint128 L units): deep supports size, thin means high price impact.
+const L_DEEP = 10n ** 17n, L_MED = 10n ** 14n;
+const lClass = (l: bigint) => (l >= L_DEEP ? "deep" : l >= L_MED ? "medium" : "thin");
+const lFmt = (l: bigint) => (l === 0n ? "0" : Number(l).toExponential(2));
+const lMeaning: Record<string, string> = {
+  deep: "Deep — supports large orders with minimal price impact.",
+  medium: "Medium — fine for moderate sizes; bigger clips will see some impact.",
+  thin: "Thin — small orders only; larger trades will move the price significantly.",
+};
+
+const liquidityCheck = new GameFunction({
+  name: "get_liquidity_check",
+  description: "Check live Uniswap v4 native-ETH pool liquidity on Robinhood Chain for Sherwood's tokenized stocks — one symbol, or all 23 when omitted — with each pool's fee tier and a depth rating (deep/medium/thin) plus what that means for order size.",
+  args: [{ name: "symbol", description: "Optional tokenized-stock symbol (AAPL, TSLA, NVDA, SPY, QQQ, …); omit to report all 23" }] as const,
+  executable: async (args, logger) => {
+    try {
+      const q = String(args.symbol ?? "").trim().toUpperCase();
+      const targets = q ? STOCKS.filter((s) => s.symbol === q) : STOCKS;
+      if (!targets.length) return fail(`unknown tokenized stock "${q}" — available: ${STOCKS.map((s) => s.symbol).join(", ")}`);
+      // one retry per pool — the RPC can flake, and a silent 0 would misreport a live pool as empty
+      const readL = (s: (typeof STOCKS)[number]) => v4Liquidity(s.address, s.fee, s.ts).catch(() => v4Liquidity(s.address, s.fee, s.ts));
+      const liq = await Promise.all(targets.map((s) => (q ? readL(s) : readL(s).catch(() => null))));
+      logger(`probed ${targets.length} v4 pool(s)`);
+      const rows = targets.map((s, i) => ({ ...s, l: liq[i] }));
+      const legend = "Depth scale (raw v4 L units): deep ≥1e17, medium ≥1e14, thin <1e14 — thin pools fit small orders only (high price impact).";
+      if (q) {
+        const r = rows[0]; const l = r.l!;
+        return ok(`${r.symbol} v4 native-ETH pool (fee ${(r.fee / 10000).toFixed(2)}%, tickSpacing ${r.ts}) on Robinhood Chain: live liquidity L=${lFmt(l)} → ${lClass(l)}. ${lMeaning[lClass(l)]} ${legend} Trade → ${SITE}/#/swap`);
+      }
+      const n: Record<string, number> = { deep: 0, medium: 0, thin: 0 };
+      rows.forEach((r) => { if (r.l !== null) n[lClass(r.l)]++; });
+      return ok(
+        `Live v4 native-ETH pool liquidity — all ${rows.length} tokenized stocks on Robinhood Chain (${n.deep} deep / ${n.medium} medium / ${n.thin} thin):\n` +
+        rows.map((r) => `• ${r.symbol}: ${r.l === null ? "read failed (RPC)" : `L=${lFmt(r.l)} (${lClass(r.l)}, fee ${(r.fee / 10000).toFixed(2)}%)`}`).join("\n") +
+        `\n${legend} Trade → ${SITE}/#/swap`
+      );
+    } catch (e: any) { return fail(`liquidity read failed: ${e.message}`); }
+  },
+});
+
+const bestRoute = new GameFunction({
+  name: "get_best_route",
+  description: "Explain the exact route Sherwood's public aggregator would take for a swap: each leg's venue (v4 native-ETH pool with fee tier, v3 WETH pool, v2 pair, or the two-hop v2 path like $SWOOD via VIRTUAL), the resolved pool/pair addresses, and the live quoted output + USD value. Tokens are symbols or 0x addresses.",
+  args: [
+    { name: "token_in", description: "Token to sell — a symbol (ETH, USDG, AAPL, SWOOD, …) or a 0x address" },
+    { name: "token_out", description: "Token to buy — a symbol or a 0x address" },
+    { name: "amount", description: "Human amount of token_in to sell, e.g. \"0.01\" or \"1000\"" },
+  ] as const,
+  executable: async (args, logger) => {
+    try {
+      if (!args.token_in || !args.token_out || !args.amount) return fail("provide token_in, token_out and amount");
+      const [tin, tout] = await Promise.all([resolveToken(String(args.token_in)), resolveToken(String(args.token_out))]);
+      const q = await liveQuote(String(args.token_in), String(args.token_out), String(args.amount));
+      const legs: string[] = [];
+      if (!isHub(tin.address)) legs.push(`${tin.symbol} → ETH via ${describeSpoke(tin.spoke, tin.address)}`);
+      if (!isHub(tout.address)) legs.push(`ETH → ${tout.symbol} via ${describeSpoke(tout.spoke, tout.address)}`);
+      if (!legs.length) legs.push(`${tin.symbol} → ${tout.symbol} — both sides are the native hub (wrap/unwrap only, no pool hop)`);
+      logger(`${q.amountIn} ${q.inSym} -> ${q.amountOut} ${q.outSym} in ${legs.length} leg(s)`);
+      return ok(
+        `Best route for ${q.amountIn} ${q.inSym} → ${q.outSym} (public aggregator, through the native-ETH hub):\n` +
+        legs.map((l, i) => `${i + 1}) ${l}`).join("\n") +
+        `\nQuoted output: ~${q.amountOut} ${q.outSym}${q.usd ? ` (≈ $${q.usd})` : ""}. ${q.rate}. ` +
+        `Indicative on-chain spot (excl. gas/slippage; public-swap fee 0–0.30% by $SWOOD held). Swap → ${SITE}/#/swap`
+      );
+    } catch (e: any) { return fail(`route failed: ${e.message}`); }
+  },
+});
+
 // ---- worker + agent ----
 /** All economy functions, exported so they can also be run standalone (see ask.ts) without GAME. */
-export const economyFunctions = [explainSherwood, swoodUtility, stakingStats, feeTier, governance, tokenUniverse, bridgeInfo, liveSwapQuote, liveBridgeQuote, portfolio];
+export const economyFunctions = [explainSherwood, swoodUtility, stakingStats, feeTier, governance, tokenUniverse, bridgeInfo, liveSwapQuote, liveBridgeQuote, portfolio, liquidityCheck, bestRoute];
 
 /** Run one economy function by name, off the GAME loop — returns its feedback string. */
 export async function callByName(name: string, args: Record<string, string> = {}): Promise<string> {
