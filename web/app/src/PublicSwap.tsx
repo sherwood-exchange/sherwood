@@ -141,8 +141,9 @@ export function PublicSwap({ net, walletProvider, address, isConnected, onConnec
 
   useEffect(() => {
     fetch("/tokenlist.json").then((r) => r.json()).then(async (l: AggToken[]) => {
-      // overlay config metadata (logo / display name) where the open list lacks it
-      const merged = l.map((t) => { const c = cfgMeta.get(t.address.toLowerCase()); return c ? { ...t, logo: t.logo ?? c.logo, name: t.name || c.name || t.symbol } : t; });
+      // overlay config metadata — curated config logos WIN over tokenlist URLs (the
+      // tokenlist's cdn.robinhood.com logos are generic feathers and ISP-blocked for some users)
+      const merged = l.map((t) => { const c = cfgMeta.get(t.address.toLowerCase()); return c ? { ...t, logo: c.logo ?? t.logo, name: c.name || t.name || t.symbol } : t; });
       setTokens([...HUB, ...merged]);
       const initial = merged.find((t) => t.symbol === "USDG") ?? merged[0];
       if (initial) { setOutTok(initial); try { setOutTok(await withSpoke(initial)); } catch { /* leave unresolved */ } }
