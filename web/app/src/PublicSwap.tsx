@@ -6,9 +6,9 @@ import { createPublicClient, createWalletClient, custom, http, parseUnits, forma
 import { chainById, ERC20_ABI } from "@sherwood/client";
 import type { NetworkConfig } from "./config";
 import { quotePublic, resolveSpoke, isHub, type AggToken, type Spoke, NATIVE, WETH } from "./aggregator";
-import { TokenPicker } from "./TokenUI";
+import { RouteChips, TokenPicker } from "./TokenUI";
 
-type St = { kind: "ok" | "err" | "busy"; msg: string } | null;
+type St = { kind: "ok" | "err" | "busy"; msg: string; hash?: string } | null;
 const ZERO = "0x0000000000000000000000000000000000000000" as Address;
 const ZERO_SPOKE = { kind: 0, pool: ZERO, fee: 0, ts: 0, via: ZERO, pool2: ZERO } as const;
 
@@ -21,7 +21,16 @@ const AGG_ABI = [
   ], outputs: [{ type: "uint256" }] },
 ] as const;
 const spokeArg = (t: AggToken) => { const s: any = t.spoke ?? ZERO_SPOKE; return { kind: s.kind, pool: s.pool, fee: s.fee, ts: s.ts, via: s.via ?? ZERO, pool2: s.pool2 ?? ZERO }; };
-const dexTag = (t: AggToken) => (isHub(t.address) || !t.spoke ? "" : ` ·${["v4", "v3", "v2", "v2²"][t.spoke.kind]}`);
+/** DEX version a token's ETH leg executes on (display-only; hub tokens have no leg). */
+const dexLabel = (t: AggToken) => (isHub(t.address) || !t.spoke ? undefined : ["v4", "v3", "v2", "v2²"][t.spoke.kind]);
+/** Human-readable form of common wallet/router errors (display-only). */
+const readableErr = (e: any): string => {
+  const m: string = e?.shortMessage ?? e?.message ?? String(e);
+  if (/user (rejected|denied)|rejected the request/i.test(m)) return "Transaction rejected in your wallet.";
+  if (/insufficient funds/i.test(m)) return "Insufficient ETH to cover gas.";
+  if (/TooLittleReceived|slippage|minOut/i.test(m)) return "Price moved beyond your slippage tolerance — retry or raise max slippage.";
+  return m.length > 220 ? m.slice(0, 220) + "…" : m;
+};
 const ERC_META = [
   { type: "function", name: "symbol", stateMutability: "view", inputs: [], outputs: [{ type: "string" }] },
   { type: "function", name: "name", stateMutability: "view", inputs: [], outputs: [{ type: "string" }] },
@@ -68,6 +77,16 @@ export function PublicSwap({ net, walletProvider, address, isConnected, onConnec
   const toggleFav = (addr: string) => setFav((f) => { const n = new Set(f); if (n.has(addr)) n.delete(addr); else n.add(addr); localStorage.setItem("agg-fav", JSON.stringify([...n])); return n; });
   const byAddr = useMemo(() => { const m = new Map<string, AggToken>(); for (const t of tokens) m.set(t.address.toLowerCase(), t); return m; }, [tokens]);
   const recent = useMemo(() => recentAddrs.map((a) => byAddr.get(a)).filter(Boolean) as AggToken[], [recentAddrs, byAddr]);
+  // display-only overlay: config logos/names + the tokenized-stock grouping. Address-based,
+  // so a same-symbol token from the open 500-token list can't impersonate a stock.
+  const cfgMeta = useMemo(() => { const m = new Map<string, { logo?: string; name?: string }>(); for (const t of net.tokens) m.set(t.address.toLowerCase(), { logo: t.logo, name: t.name }); return m; }, [net]);
+  const stockSet = useMemo(() => new Set(net.tokens.filter((t) => t.stock).map((t) => t.address.toLowerCase())), [net]);
+  const isStockTok = (t: { address: string }) => stockSet.has(t.address.toLowerCase());
+  // "popular" quick picks — stocks resolved by config address, the rest by symbol
+  const popular = useMemo(() => {
+    const byCfg = (s: string) => { const c = net.tokens.find((t) => t.symbol === s); return c && byAddr.get(c.address.toLowerCase()); };
+    return ["ETH", "USDG", "SWOOD", "AAPL", "TSLA", "NVDA", "SPY"].map((s) => byCfg(s) || tokens.find((t) => t.symbol === s)).filter(Boolean) as AggToken[];
+  }, [tokens, byAddr, net]);
   const remember = (t: AggToken) => setRecentAddrs((r) => { const n = [t.address.toLowerCase(), ...r.filter((a) => a !== t.address.toLowerCase())].slice(0, 8); localStorage.setItem("agg-recent", JSON.stringify(n)); return n; });
   const [resolving, setResolving] = useState(false);
 
@@ -122,8 +141,10 @@ export function PublicSwap({ net, walletProvider, address, isConnected, onConnec
 
   useEffect(() => {
     fetch("/tokenlist.json").then((r) => r.json()).then(async (l: AggToken[]) => {
-      setTokens([...HUB, ...l]);
-      const initial = l.find((t) => t.symbol === "USDG") ?? l[0];
+      // overlay config metadata (logo / display name) where the open list lacks it
+      const merged = l.map((t) => { const c = cfgMeta.get(t.address.toLowerCase()); return c ? { ...t, logo: t.logo ?? c.logo, name: t.name || c.name || t.symbol } : t; });
+      setTokens([...HUB, ...merged]);
+      const initial = merged.find((t) => t.symbol === "USDG") ?? merged[0];
       if (initial) { setOutTok(initial); try { setOutTok(await withSpoke(initial)); } catch { /* leave unresolved */ } }
     }).catch(() => {});
   }, []);
@@ -165,7 +186,18 @@ export function PublicSwap({ net, walletProvider, address, isConnected, onConnec
   const rate = netOut != null && value > 0n ? (netOut * 10n ** BigInt(inTok.decimals)) / value : 0n;
   const usdIn = priceIn != null && amt ? priceIn * (parseFloat(amt) || 0) : null;
   const usdOut = priceOut != null && netOut != null && outTok ? priceOut * Number(formatUnits(netOut, outTok.decimals)) : null;
-  const flip = () => { if (!outTok) return; const a = inTok, b = outTok; setInTok(b); setOutTok(a); setAmt(""); };
+  const [flips, setFlips] = useState(0); // drives the flip-button rotation (visual only)
+  const [details, setDetails] = useState(false);
+  const flip = () => { if (!outTok) return; const a = inTok, b = outTok; setInTok(b); setOutTok(a); setAmt(""); setFlips((f) => f + 1); };
+
+  // route path rendered as chips: in ·dex → ETH → out ·dex (hub legs collapse)
+  const routeStops = useMemo(() => {
+    if (!outTok) return [];
+    const stops: { sym: string; logo?: string; tag?: string }[] = [{ sym: inTok.symbol, logo: inTok.logo, tag: dexLabel(inTok) }];
+    if (!isHub(inTok.address) && !isHub(outTok.address)) stops.push({ sym: "ETH", logo: "/tokens/eth.png" });
+    stops.push({ sym: outTok.symbol, logo: outTok.logo, tag: dexLabel(outTok) });
+    return stops;
+  }, [inTok, outTok]);
 
   async function doSwap() {
     if (!walletProvider || !address || !outTok || !net.aggRouter) return;
@@ -192,10 +224,10 @@ export function PublicSwap({ net, walletProvider, address, isConnected, onConnec
         value: inTok.address === NATIVE ? value : 0n,
       });
       await pc.waitForTransactionReceipt({ hash: h });
-      setStatus({ kind: "ok", msg: `Swapped ${human}. tx ${h.slice(0, 10)}…` });
+      setStatus({ kind: "ok", msg: `Swapped ${human}.`, hash: h });
       setAmt("");
     } catch (e: any) {
-      setStatus({ kind: "err", msg: e?.shortMessage ?? e?.message ?? String(e) });
+      setStatus({ kind: "err", msg: readableErr(e) });
     } finally {
       setWorking(false);
     }
@@ -226,13 +258,13 @@ export function PublicSwap({ net, walletProvider, address, isConnected, onConnec
             </div>
             <div className="ap-main">
               <input className="ap-amount" inputMode="decimal" placeholder="0.0" value={amt} onChange={(e) => setAmt(e.target.value)} />
-              <TokenPicker tokens={tokens} value={inTok} onChange={chooseIn} exclude={outTok?.address} fav={fav} onFav={toggleFav} recent={recent} onImport={(a) => importToken(a, setInTok)} />
+              <TokenPicker tokens={tokens} value={inTok} onChange={chooseIn} exclude={outTok?.address} fav={fav} onFav={toggleFav} recent={recent} onImport={(a) => importToken(a, setInTok)} popular={popular} isStock={isStockTok} />
             </div>
             {usdIn != null && usdIn > 0 && <div className="ap-usd">{fmtUsd(usdIn)}</div>}
           </div>
 
           <div className="swap-dir-wrap">
-            <button type="button" className="swap-dir" onClick={flip} aria-label="Switch direction">
+            <button type="button" className="swap-dir" onClick={flip} aria-label="Switch direction" style={{ transform: `rotate(${flips * 180}deg)` }}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M7 4v16m0 0-3-3m3 3 3-3M17 20V4m0 0-3 3m3-3 3 3" /></svg>
             </button>
           </div>
@@ -240,30 +272,50 @@ export function PublicSwap({ net, walletProvider, address, isConnected, onConnec
           <div className="asset-panel">
             <div className="ap-top"><span className="ap-label">You receive</span></div>
             <div className="ap-main">
-              <div className={`ap-amount ap-readonly ${netOut != null ? "" : "muted"}`}>{quoting ? <span className="spin" /> : netOut != null && outTok ? trim(formatUnits(netOut, outTok.decimals), 8) : "0.0"}</div>
-              {outTok && <TokenPicker tokens={tokens} value={outTok} onChange={chooseOut} exclude={inTok.address} fav={fav} onFav={toggleFav} recent={recent} onImport={(a) => importToken(a, setOutTok)} />}
+              <div className={`ap-amount ap-readonly ${netOut != null ? "" : "muted"}`}>{quoting ? <span className="skel skel-amt" /> : netOut != null && outTok ? trim(formatUnits(netOut, outTok.decimals), 8) : "0.0"}</div>
+              {outTok && <TokenPicker tokens={tokens} value={outTok} onChange={chooseOut} exclude={inTok.address} fav={fav} onFav={toggleFav} recent={recent} onImport={(a) => importToken(a, setOutTok)} popular={popular} isStock={isStockTok} />}
             </div>
             {usdOut != null && usdOut > 0 && <div className="ap-usd">{fmtUsd(usdOut)}</div>}
           </div>
 
-          <div className="swap-meta">
-            <div className="sm-row"><span>Rate</span><span>{rate > 0n && outTok ? `1 ${inTok.symbol} ≈ ${trim(formatUnits(rate, outTok.decimals), 6)} ${outTok.symbol}` : quoting ? "fetching…" : "—"}</span></div>
-            <div className="sm-row"><span>Fee</span><span>{feeBps === 0 ? <b style={{ color: "var(--lime)" }}>0% — $SWOOD holder</b> : `${(feeBps / 100).toFixed(2)}%${isConnected ? "" : ""}`}{feeBps > 0 && <span className="muted" style={{ marginLeft: 6, fontSize: 11 }}>· hold $SWOOD to cut it</span>}</span></div>
-            <div className="sm-row"><span>Max slippage</span><span className="slip-input"><input inputMode="decimal" value={slip} onChange={(e) => setSlip(e.target.value)} />%</span></div>
-            {q && outTok && <div className="sm-row dim"><span>Min received</span><span>{trim(formatUnits(minOut, outTok.decimals), 8)} {outTok.symbol}</span></div>}
-            <div className="sm-row dim"><span>Route</span><span>{inTok.symbol}{dexTag(inTok)} → ETH → {outTok ? `${outTok.symbol}${dexTag(outTok)}` : "—"}</span></div>
+          <div className={`sw-details ${details ? "open" : ""}`}>
+            <button type="button" className="sw-summary" onClick={() => setDetails((d) => !d)} aria-expanded={details}>
+              <span className="sw-rate">
+                {quoting ? <span className="skel skel-line" /> : rate > 0n && outTok ? `1 ${inTok.symbol} ≈ ${trim(formatUnits(rate, outTok.decimals), 6)} ${outTok.symbol}` : "Rate —"}
+              </span>
+              <span className="sw-sum-right">
+                {feeBps === 0 ? <b className="fee-free">0% fee</b> : <span className="muted">{(feeBps / 100).toFixed(2)}% fee</span>}
+                <svg className="chev" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
+              </span>
+            </button>
+            {details && (
+              <div className="sw-body">
+                <div className="sm-row"><span>Protocol fee</span><span>{feeBps === 0 ? <b style={{ color: "var(--lime)" }}>0% — $SWOOD holder</b> : <>{(feeBps / 100).toFixed(2)}%<span className="muted" style={{ marginLeft: 6, fontSize: 11 }}>· hold $SWOOD to cut it</span></>}</span></div>
+                <div className="sm-row"><span>Max slippage</span><span className="slip-input"><input inputMode="decimal" value={slip} onChange={(e) => setSlip(e.target.value)} />%</span></div>
+                {q && outTok && <div className="sm-row dim"><span>Minimum received</span><span>{trim(formatUnits(minOut, outTok.decimals), 8)} {outTok.symbol}</span></div>}
+                <div className="sm-row route-row"><span>Route</span>{routeStops.length ? <RouteChips stops={routeStops} /> : <span>—</span>}</div>
+              </div>
+            )}
           </div>
 
           {!isConnected ? (
             <button className="btn block" style={{ marginTop: 14 }} onClick={onConnect}>Connect wallet</button>
           ) : (
             <button className="btn block" style={{ marginTop: 14 }} disabled={disabled} onClick={doSwap}>
-              {resolving ? "Finding best route…" : sameTok ? "Select different tokens" : noRoute ? "No route found" : value > bal ? `Insufficient ${inTok.symbol}` : "Swap"}
+              {working ? <><span className="spin dark" />{status?.kind === "busy" && status.msg.startsWith("Approving") ? "Approving…" : "Swapping…"}</>
+                : resolving ? "Finding best route…" : sameTok ? "Select different tokens" : noRoute ? "No route found" : value > bal ? `Insufficient ${inTok.symbol}` : "Swap"}
             </button>
           )}
 
           {status && (
-            <div className={`status ${status.kind}`}>{status.kind === "busy" && <span className="spin" />}{status.msg}</div>
+            <div className={`status ${status.kind}`}>
+              {status.kind === "busy" && <span className="spin" />}
+              {status.kind === "ok" && <span className="status-ico" aria-hidden>✓ </span>}
+              {status.msg}
+              {status.kind === "ok" && status.hash && (net.explorer
+                ? <a className="txlink" href={`${net.explorer}/tx/${status.hash}`} target="_blank" rel="noreferrer">View transaction ↗</a>
+                : <span className="muted"> tx {status.hash.slice(0, 10)}…</span>)}
+            </div>
           )}
         </section>
       </div>

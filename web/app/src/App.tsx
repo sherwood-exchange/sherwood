@@ -15,7 +15,7 @@ import { PublicSwap } from "./PublicSwap";
 import { Bridge } from "./Bridge";
 import { Stake } from "./Stake";
 import { Govern } from "./Govern";
-import { TokenAvatar, TokenPicker } from "./TokenUI";
+import { RouteChips, TokenAvatar, TokenPicker } from "./TokenUI";
 
 type Tab = "shield" | "send" | "swap" | "withdraw";
 type Status = { kind: "ok" | "err" | "busy"; msg: string } | null;
@@ -576,7 +576,7 @@ function PortfolioPage({ net, conn, shielded, clear, noteCount, myAddress, copie
         <p className="hint">Private — no observer can link these to your address. · {noteCount} note{noteCount === 1 ? "" : "s"}</p>
         <ul className="holdings">
           {shieldedTokens.map((t) => (
-            <Holding key={t.address} sym={t.symbol} amount={shielded[t.symbol] ?? 0n} decimals={t.decimals} halted={t.halted} logo={t.logo} usd={usdOf(t.symbol, shielded[t.symbol] ?? 0n, t.decimals)} />
+            <Holding key={t.address} sym={t.symbol} name={t.name} amount={shielded[t.symbol] ?? 0n} decimals={t.decimals} halted={t.halted} logo={t.logo} usd={usdOf(t.symbol, shielded[t.symbol] ?? 0n, t.decimals)} />
           ))}
         </ul>
       </section>
@@ -589,7 +589,7 @@ function PortfolioPage({ net, conn, shielded, clear, noteCount, myAddress, copie
         <p className="hint">Unshielded balances in your connected wallet.</p>
         <ul className="holdings">
           {net.tokens.map((t) => (
-            <Holding key={t.symbol} sym={t.symbol} amount={clear[t.symbol] ?? 0n} decimals={t.decimals} muted halted={t.halted} logo={t.logo} usd={usdOf(t.symbol, clear[t.symbol] ?? 0n, t.decimals)} />
+            <Holding key={t.symbol} sym={t.symbol} name={t.name} amount={clear[t.symbol] ?? 0n} decimals={t.decimals} muted halted={t.halted} logo={t.logo} usd={usdOf(t.symbol, clear[t.symbol] ?? 0n, t.decimals)} />
           ))}
         </ul>
       </section>
@@ -641,6 +641,10 @@ const TOKEN_NAMES: Record<string, string> = {
   VIRTUAL: "Virtual", VEX: "Vex", AAPL: "Apple", TSLA: "Tesla", NVDA: "Nvidia",
 };
 
+/** DEX version each desk token's ETH leg executes on — display-only mirror of routing.ts
+ *  (stocks are all v4; hub tokens have no leg). */
+const DESK_DEX: Record<string, string> = { USDG: "v4", CASHCAT: "v3", JUGGERNAUT: "v3", HOODRAT: "v2", VIRTUAL: "v2", VEX: "v2²" };
+
 /** Deterministic gradient per ticker so each token badge is stable + distinct. */
 function fmtUsd(n: number): string {
   if (n === 0) return "$0.00";
@@ -649,13 +653,13 @@ function fmtUsd(n: number): string {
 }
 
 /** One portfolio row: token badge + name + amount + estimated USD value (Zerion-style). */
-function Holding({ sym, amount, decimals, muted, halted, usd, logo }: { sym: string; amount: bigint; decimals: number; muted?: boolean; halted?: boolean; usd?: number; logo?: string }) {
+function Holding({ sym, name, amount, decimals, muted, halted, usd, logo }: { sym: string; name?: string; amount: bigint; decimals: number; muted?: boolean; halted?: boolean; usd?: number; logo?: string }) {
   return (
     <li className={`holding ${halted ? "halted" : amount === 0n ? "zero" : ""}`}>
       <TokenAvatar sym={sym} logo={logo} size={36} className="tok-badge" />
       <span className="holding-meta">
         <span className="holding-sym">{sym}</span>
-        <span className="holding-name">{halted ? "Deposit & trading halted" : TOKEN_NAMES[sym] ?? sym}</span>
+        <span className="holding-name">{halted ? "Deposit & trading halted" : name ?? TOKEN_NAMES[sym] ?? sym}</span>
       </span>
       {halted ? (
         <span className="holding-badge">HALTED</span>
@@ -676,11 +680,21 @@ function trimAmt(s: string, n = 6): string {
 }
 
 /** Desk token selector — the shared searchable TokenPicker over the pool's allowlisted tokens
- *  (same UI as the public aggregator). No favorites/import: the shielded pool is a fixed set. */
-function DeskPill({ net, sym, onSym }: { net: NetworkConfig; sym: string; onSym: (s: string) => void }) {
-  const sel = useMemo(() => net.tokens.filter((t) => !t.halted).map((t) => ({ ...t, name: TOKEN_NAMES[t.symbol] ?? t.symbol })), [net]);
+ *  (same UI as the public aggregator). No favorites/import: the shielded pool is a fixed set.
+ *  Tokenized stocks group under their own section; rows show the balance the form already holds. */
+function DeskPill({ net, sym, onSym, balances }: { net: NetworkConfig; sym: string; onSym: (s: string) => void; balances?: Record<string, bigint> }) {
+  const sel = useMemo(() => net.tokens.filter((t) => !t.halted).map((t) => ({ ...t, name: t.name ?? TOKEN_NAMES[t.symbol] ?? t.symbol })), [net]);
   const value = sel.find((t) => t.symbol === sym) ?? sel[0];
-  return <TokenPicker tokens={sel} value={value} onChange={(t) => onSym(t.symbol)} />;
+  const stocks = useMemo(() => new Set(net.tokens.filter((t) => t.stock).map((t) => t.address.toLowerCase())), [net]);
+  return (
+    <TokenPicker
+      tokens={sel}
+      value={value}
+      onChange={(t) => onSym(t.symbol)}
+      isStock={(t) => stocks.has(t.address.toLowerCase())}
+      balOf={balances ? (t) => { const b = balances[t.symbol]; return b != null && b > 0n ? trimAmt(formatUnits(b, t.decimals)) : undefined; } : undefined}
+    />
+  );
 }
 
 /** Uniswap-style amount panel: big amount input on the left, token pill on the right,
@@ -702,7 +716,7 @@ function AssetPanel({ label, amount, onAmount, balance, decimals, onMax, readOnl
       </div>
       <div className="ap-main">
         {readOnly ? (
-          <div className={`ap-amount ap-readonly ${amount ? "" : "muted"}`}>{quoting ? <span className="spin" /> : amount || "0.0"}</div>
+          <div className={`ap-amount ap-readonly ${amount ? "" : "muted"}`}>{quoting ? <span className="skel skel-amt" /> : amount || "0.0"}</div>
         ) : (
           <input className="ap-amount" inputMode="decimal" placeholder="0.0" value={amount} onChange={(e) => onAmount?.(e.target.value)} />
         )}
@@ -731,7 +745,7 @@ function ShieldForm({ net, busy, balances, onSubmit }: { net: NetworkConfig; bus
         decimals={token.decimals}
         onMax={setAmt}
         usd={usd}
-        pill={<DeskPill net={net} sym={sym} onSym={setSym} />}
+        pill={<DeskPill net={net} sym={sym} onSym={setSym} balances={balances} />}
       />
       <button className="btn block" style={{ marginTop: 16 }} disabled={busy || value <= 0n} onClick={() => onSubmit(token, value)}>
         Shield {sym}
@@ -765,7 +779,7 @@ function SendForm({ net, busy, balances, myAddress, onSubmit }: { net: NetworkCo
         decimals={token.decimals}
         onMax={setAmt}
         usd={usd}
-        pill={<DeskPill net={net} sym={sym} onSym={setSym} />}
+        pill={<DeskPill net={net} sym={sym} onSym={setSym} balances={balances} />}
       />
       <div className="field">
         <label>Recipient Sherwood address</label>
@@ -818,7 +832,18 @@ function SwapForm({ net, busy, balances, quote, onSubmit }: { net: NetworkConfig
   const manualMinValue = useAmount(tout, manualMin);
   const minValue = q ? q.minOut : manualMinValue;
   const rate = q && value > 0n ? (q.amountOut * 10n ** BigInt(tin.decimals)) / value : 0n;
-  const flip = () => { setInSym(outSym); setOutSym(inSym); };
+  const [flips, setFlips] = useState(0); // drives the flip-button rotation (visual only)
+  const flip = () => { setInSym(outSym); setOutSym(inSym); setFlips((f) => f + 1); };
+
+  // route path chips (display-only) — every desk pair routes through the WETH/ETH hub
+  const isHubTok = (t: TokenInfo) => t.symbol === "ETH" || t.symbol === "WETH";
+  const deskDex = (t: TokenInfo): string | undefined => (isHubTok(t) ? undefined : t.stock ? "v4" : DESK_DEX[t.symbol]);
+  const routeStops = useMemo(() => {
+    const stops: { sym: string; logo?: string; tag?: string }[] = [{ sym: tin.symbol, logo: tin.logo, tag: deskDex(tin) }];
+    if (!isHubTok(tin) && !isHubTok(tout)) stops.push({ sym: "ETH", logo: "/tokens/eth.png" });
+    stops.push({ sym: tout.symbol, logo: tout.logo, tag: deskDex(tout) });
+    return stops;
+  }, [tin, tout]);
 
   // USD values (priced via USDG), same as the public aggregator
   const usdIn = useUsdValue(net, tin, amt);
@@ -837,11 +862,11 @@ function SwapForm({ net, busy, balances, quote, onSubmit }: { net: NetworkConfig
         decimals={tin.decimals}
         onMax={setAmt}
         usd={usdIn}
-        pill={<DeskPill net={net} sym={inSym} onSym={setInSym} />}
+        pill={<DeskPill net={net} sym={inSym} onSym={setInSym} balances={balances} />}
       />
 
       <div className="swap-dir-wrap">
-        <button type="button" className="swap-dir" onClick={flip} aria-label="Switch direction">
+        <button type="button" className="swap-dir" onClick={flip} aria-label="Switch direction" style={{ transform: `rotate(${flips * 180}deg)` }}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M7 4v16m0 0-3-3m3 3 3-3M17 20V4m0 0-3 3m3-3 3 3" /></svg>
         </button>
       </div>
@@ -854,7 +879,7 @@ function SwapForm({ net, busy, balances, quote, onSubmit }: { net: NetworkConfig
         balance={balances[outSym] ?? 0n}
         decimals={tout.decimals}
         usd={usdOut}
-        pill={<DeskPill net={net} sym={outSym} onSym={setOutSym} />}
+        pill={<DeskPill net={net} sym={outSym} onSym={setOutSym} balances={balances} />}
       />
 
       {net.quoter ? (
@@ -873,6 +898,10 @@ function SwapForm({ net, busy, balances, quote, onSubmit }: { net: NetworkConfig
               <span>{trimAmt(formatUnits(q.minOut, tout.decimals), 8)} {tout.symbol}</span>
             </div>
           )}
+          <div className="sm-row route-row">
+            <span>Route</span>
+            {inSym === outSym ? <span>—</span> : <RouteChips stops={routeStops} />}
+          </div>
         </div>
       ) : (
         <div className="field">
@@ -918,7 +947,7 @@ function WithdrawForm({ net, busy, balances, onSubmit }: { net: NetworkConfig; b
         decimals={token.decimals}
         onMax={setAmt}
         usd={usd}
-        pill={<DeskPill net={net} sym={sym} onSym={setSym} />}
+        pill={<DeskPill net={net} sym={sym} onSym={setSym} balances={balances} />}
       />
       <div className="field">
         <label>Recipient address</label>
