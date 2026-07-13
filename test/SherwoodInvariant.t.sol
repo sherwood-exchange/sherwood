@@ -6,10 +6,10 @@ import {Sherwood} from "../src/Sherwood.sol";
 import {SwapExecutor} from "../src/SwapExecutor.sol";
 import {MockVerifier} from "../src/verifiers/MockVerifier.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
-import {MockRouter} from "./mocks/MockRouter.sol";
+import {MockWETH} from "./mocks/MockWETH.sol";
+import {MockUniversalRouter} from "./mocks/MockUniversalRouter.sol";
 import {SherwoodHandler} from "./handlers/SherwoodHandler.sol";
 import {IVerifier} from "../src/interfaces/IVerifier.sol";
-import {ISwapRouter} from "../src/interfaces/ISwapRouter.sol";
 
 /// @dev Stateful invariant: under any random sequence of shield/unshield/swap/
 ///      transfer, the pool's real ERC20 balances always equal the ghost ledger of
@@ -20,21 +20,35 @@ contract SherwoodInvariantTest is Test {
     Sherwood pool;
     MockERC20 usdg;
     MockERC20 aapl;
-    MockRouter router;
     SherwoodHandler handler;
+
+    // the executor's hardcoded Robinhood-mainnet hubs — mocks get etched here
+    address constant WETH = 0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73;
+    address constant UNIVERSAL_ROUTER = 0x8876789976dEcBfCbBbe364623C63652db8C0904;
 
     function setUp() public {
         MockVerifier verifier = new MockVerifier();
-        router = new MockRouter();
         SwapExecutor executor = new SwapExecutor();
         usdg = new MockERC20("Global Dollar", "USDG", 6);
         aapl = new MockERC20("Apple Stock Token", "AAPLx", 18);
+
+        // stand in the executor's on-chain DEX infra at its hardcoded addresses
+        // (mock AMM defaults to a 1:1 raw rate, matching the handler's ghost ledger)
+        vm.etch(WETH, address(new MockWETH()).code);
+        vm.etch(UNIVERSAL_ROUTER, address(new MockUniversalRouter()).code);
+        vm.deal(UNIVERSAL_ROUTER, 1e30); // ETH side of every mock pool
+        usdg.mint(UNIVERSAL_ROUTER, 1e38); // token-side inventory
+        aapl.mint(UNIVERSAL_ROUTER, 1e38);
+        // register the mock tokens as stocks so both route via the native-ETH v4 leg
+        executor.setStockRoute(address(usdg), 3000, 60);
+        executor.setStockRoute(address(aapl), 3000, 60);
+
         address[] memory assets = new address[](2);
         assets[0] = address(usdg);
         assets[1] = address(aapl);
         pool = new Sherwood(IVerifier(address(verifier)), executor, 23, address(this), address(this), assets);
 
-        handler = new SherwoodHandler(pool, usdg, aapl, router);
+        handler = new SherwoodHandler(pool, usdg, aapl);
         targetContract(address(handler));
     }
 

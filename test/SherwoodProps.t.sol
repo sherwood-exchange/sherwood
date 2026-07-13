@@ -6,9 +6,7 @@ import {Sherwood} from "../src/Sherwood.sol";
 import {SwapExecutor} from "../src/SwapExecutor.sol";
 import {MockVerifier} from "../src/verifiers/MockVerifier.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
-import {MockRouter} from "./mocks/MockRouter.sol";
 import {IVerifier} from "../src/interfaces/IVerifier.sol";
-import {ISwapRouter} from "../src/interfaces/ISwapRouter.sol";
 
 /// @dev exposes the internal field-encoding helper for property testing.
 contract SherwoodHarness is Sherwood {
@@ -31,7 +29,6 @@ contract SherwoodPropsTest is Test {
 
     function setUp() public {
         MockVerifier v = new MockVerifier();
-        MockRouter r = new MockRouter();
         SwapExecutor e = new SwapExecutor();
         address[] memory a = new address[](1);
         a[0] = address(new MockERC20("USDG", "USDG", 6));

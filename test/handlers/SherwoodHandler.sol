@@ -4,7 +4,6 @@ pragma solidity ^0.8.24;
 import {Test} from "forge-std/Test.sol";
 import {Sherwood} from "../../src/Sherwood.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
-import {MockRouter} from "../mocks/MockRouter.sol";
 import {PoseidonT3} from "poseidon-solidity/PoseidonT3.sol";
 
 /// @dev Drives random shield/unshield/swap/transfer sequences against the pool
@@ -17,7 +16,6 @@ contract SherwoodHandler is Test {
     Sherwood public pool;
     MockERC20 public usdg;
     MockERC20 public aapl;
-    MockRouter public router;
     address public shielder = address(0xA11CE);
     address public recipient = address(0xB0B);
 
@@ -30,12 +28,12 @@ contract SherwoodHandler is Test {
 
     uint256 private nonce;
 
-    constructor(Sherwood _pool, MockERC20 _usdg, MockERC20 _aapl, MockRouter _router) {
+    constructor(Sherwood _pool, MockERC20 _usdg, MockERC20 _aapl) {
         pool = _pool;
         usdg = _usdg;
         aapl = _aapl;
-        router = _router;
-        router.setRate(1, 1); // 1 USDG unit -> 1 AAPL unit (accounting is unit-agnostic)
+        // mock AMM (etched by the test) defaults to 1 USDG unit -> 1 AAPL unit
+        // (accounting is unit-agnostic)
         usdg.mint(shielder, 1e30);
         vm.prank(shielder);
         usdg.approve(address(pool), type(uint256).max);

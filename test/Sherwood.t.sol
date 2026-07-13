@@ -7,9 +7,9 @@ import {Sherwood} from "../src/Sherwood.sol";
 import {SwapExecutor} from "../src/SwapExecutor.sol";
 import {MockVerifier} from "../src/verifiers/MockVerifier.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
-import {MockRouter} from "./mocks/MockRouter.sol";
+import {MockWETH} from "./mocks/MockWETH.sol";
+import {MockUniversalRouter} from "./mocks/MockUniversalRouter.sol";
 import {IVerifier} from "../src/interfaces/IVerifier.sol";
-import {ISwapRouter} from "../src/interfaces/ISwapRouter.sol";
 import {PoseidonT5} from "poseidon-solidity/PoseidonT5.sol";
 import {PoseidonT3} from "poseidon-solidity/PoseidonT3.sol";
 
@@ -22,10 +22,14 @@ contract SherwoodTest is Test {
     Sherwood pool;
     MockVerifier verifier;
     SwapExecutor executor;
-    MockRouter router;
+    MockUniversalRouter amm;
     MockERC20 usdg;
     MockERC20 aapl; // a "Stock Token" to swap into
     uint32 constant LEVELS = 23;
+
+    // the executor's hardcoded Robinhood-mainnet hubs — mocks get etched here
+    address constant WETH = 0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73;
+    address constant UNIVERSAL_ROUTER = 0x8876789976dEcBfCbBbe364623C63652db8C0904;
 
     address owner = address(0x0011);
     address alice = address(0xA11CE);
@@ -37,10 +41,20 @@ contract SherwoodTest is Test {
 
     function setUp() public {
         verifier = new MockVerifier();
-        router = new MockRouter();
         executor = new SwapExecutor();
         usdg = new MockERC20("Global Dollar", "USDG", 6);
         aapl = new MockERC20("Apple Stock Token", "AAPLx", 18);
+
+        // stand in the executor's on-chain DEX infra at its hardcoded addresses
+        vm.etch(WETH, address(new MockWETH()).code);
+        vm.etch(UNIVERSAL_ROUTER, address(new MockUniversalRouter()).code);
+        amm = MockUniversalRouter(payable(UNIVERSAL_ROUTER));
+        vm.deal(UNIVERSAL_ROUTER, 1e30); // ETH side of every mock pool
+        usdg.mint(UNIVERSAL_ROUTER, 1e38); // token-side inventory
+        aapl.mint(UNIVERSAL_ROUTER, 1e38);
+        // register the mock tokens as stocks so both route via the native-ETH v4 leg
+        executor.setStockRoute(address(usdg), 3000, 60);
+        executor.setStockRoute(address(aapl), 3000, 60);
 
         address[] memory assets = new address[](2);
         assets[0] = address(usdg);
@@ -148,8 +162,8 @@ contract SherwoodTest is Test {
     function test_Swap_RoutesThroughAmm_AndReshields() public {
         _shieldUsdg(100e6);
         // 1 USDG (6dp) -> 0.5 AAPLx (18dp): rate scales units too; keep it simple
-        // with a 1:1e12 numeric rate so 30e6 USDG -> 30e18 AAPLx.
-        router.setRate(1e12, 1);
+        // with a 1:1e12 numeric rate on the ETH->AAPLx leg so 30e6 USDG -> 30e18 AAPLx.
+        amm.setRate(address(aapl), 1e12, 1);
 
         Sherwood.ExtData memory e = _blank();
         e.extAmount = -int256(30e6); // 30 USDG into the swap
@@ -179,7 +193,7 @@ contract SherwoodTest is Test {
 
     function test_Swap_SlippageRevert_NoNullifierBurn() public {
         _shieldUsdg(100e6);
-        router.setRate(1e12, 1); // 30e6 -> 30e18
+        amm.setRate(address(aapl), 1e12, 1); // 30e6 -> 30e18
 
         Sherwood.ExtData memory e = _blank();
         e.extAmount = -int256(30e6);
@@ -189,7 +203,7 @@ contract SherwoodTest is Test {
         e.deadline = block.timestamp + 1;
         Sherwood.Proof memory p = _proof(e);
 
-        vm.expectRevert(); // router: slippage
+        vm.expectRevert(); // executor: SwapFailed (slippage)
         pool.transact(p, e);
 
         assertFalse(pool.isSpent(p.inputNullifiers[0]), "nullifier burned on failed swap");
@@ -222,7 +236,7 @@ contract SherwoodTest is Test {
 
     function test_Swap_EmitsZeroValueSibling() public {
         _shieldUsdg(100e6);
-        router.setRate(1e12, 1);
+        amm.setRate(address(aapl), 1e12, 1);
         Sherwood.ExtData memory e = _blank();
         e.extAmount = -int256(30e6);
         e.tokenOut = address(aapl);
