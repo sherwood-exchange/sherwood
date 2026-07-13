@@ -1,0 +1,11 @@
+{
+  "name": "@sherwood/client",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "Sherwood shielded-pool client SDK: keys, notes, tree sync, proof generation, and the four shielded actions.",
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

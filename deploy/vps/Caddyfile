@@ -1,0 +1,31 @@
+# Auto-HTTPS reverse proxy. DOMAIN + ACME_EMAIL come from the container env.
+# Serves the static web app and proxies the relayer API under /relayer/*.
+{$DOMAIN} {
+	encode gzip zstd
+
+	# Relayer API: strip the /relayer prefix and forward to the relayer service.
+	# The web app calls https://{$DOMAIN}/relayer/{info,transact,health}.
+	handle_path /relayer/* {
+		reverse_proxy relayer:8787
+	}
+
+	# Points API: https://{$DOMAIN}/points/{leaderboard,points/<addr>,referral,info}.
+	handle_path /points/* {
+		reverse_proxy points:8788
+	}
+
+	# JSON-RPC proxy: https://{$DOMAIN}/rpc — lets the browser reach the Robinhood RPC
+	# over TLS via the VPS (no VPN, no mixed content). The proxy forwards POST bodies.
+	handle /rpc* {
+		reverse_proxy rpc:8791
+	}
+
+	# Static single-page app (circuit .wasm/.zkey are served from /srv/circuits).
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+
+	tls {$ACME_EMAIL}
+}

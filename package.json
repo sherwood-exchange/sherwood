@@ -1,0 +1,43 @@
+{
+  "name": "sherwood",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Sherwood — private exchange on Robinhood Chain",
+  "scripts": {
+    "circuit:build": "bash circuits/build.sh",
+    "sdk:build": "tsc -p client/tsconfig.json",
+    "test": "forge test -vvv",
+    "test:sdk": "tsx client/test/offline.test.ts",
+    "test:e2e": "tsx client/test/e2e.ts",
+    "testnet:deploy": "NETWORK=testnet node scripts/testnet.mjs deploy",
+    "testnet:test": "NETWORK=testnet node scripts/testnet.mjs test",
+    "mainnet:deploy": "NETWORK=mainnet node scripts/testnet.mjs deploy",
+    "mainnet:test": "NETWORK=mainnet node scripts/testnet.mjs test",
+    "relayer": "tsx relayer/src/server.ts",
+    "relayer:testnet": "NETWORK=testnet node scripts/testnet-relayer.mjs",
+    "relayer:mainnet": "NETWORK=mainnet node scripts/testnet-relayer.mjs",
+    "testnet:relayer": "NETWORK=testnet node scripts/testnet.mjs relayer-test",
+    "points:testnet": "NETWORK=testnet node scripts/points-testnet.mjs",
+    "points:mainnet": "NETWORK=mainnet node scripts/points-testnet.mjs",
+    "points": "tsx points/src/server.ts",
+    "enable-weth:mainnet": "NETWORK=mainnet node scripts/enable-weth-testnet.mjs",
+    "enable-weth:testnet": "NETWORK=testnet node scripts/enable-weth-testnet.mjs",
+    "build": "forge build",
+    "x:test": "node scripts/x-post-test.mjs test"
+  },
+  "dependencies": {
+    "@noble/ciphers": "^2.2.0",
+    "@noble/curves": "^2.2.0",
+    "@noble/hashes": "^2.2.0",
+    "circomlib": "^2.0.5",
+    "circomlibjs": "^0.1.7",
+    "ffjavascript": "^0.3.1",
+    "viem": "^2.54.6"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.0",
+    "snarkjs": "^0.7.6",
+    "tsx": "^4.23.0",
+    "typescript": "^6.0.3"
+  }
+}

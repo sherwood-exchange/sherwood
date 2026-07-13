@@ -1,0 +1,20 @@
+import { readFileSync, existsSync, writeFileSync } from "node:fs";
+import { createPublicClient, createWalletClient, http, defineChain } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
+const env = { ...process.env };
+for (const f of [".env", ".env.local"]) { if (!existsSync(f)) continue; for (const l of readFileSync(f,"utf8").split(/\r?\n/)){const m=l.match(/^\s*([A-Za-z0-9_]+)\s*=\s*(.*)$/);if(m){const v=m[2].replace(/\s+#.*$/,"").trim();if(v)env[m[1]]=v;}} }
+const rpc = env.RPC_URL || "https://rpc.mainnet.chain.robinhood.com";
+const chainId = Number(env.CHAIN_ID || 4663);
+const account = privateKeyToAccount(env.DEPLOYER_PRIVATE_KEY);
+const chain = defineChain({ id: chainId, name: "Robinhood Chain", nativeCurrency: { name:"Ether", symbol:"ETH", decimals:18 }, rpcUrls: { default: { http: [rpc] } } });
+const pub = createPublicClient({ chain, transport: http(rpc) });
+const wallet = createWalletClient({ account, chain, transport: http(rpc) });
+const art = JSON.parse(readFileSync("out/AggRouter.sol/AggRouter.json","utf8"));
+const bal = await pub.getBalance({ address: account.address });
+console.log("deployer", account.address, "gas", bal.toString());
+const hash = await wallet.deployContract({ abi: art.abi, bytecode: art.bytecode.object, args: [] });
+const r = await pub.waitForTransactionReceipt({ hash });
+console.log("AggRouter:", r.contractAddress, "status", r.status);
+const f = "deploy/mainnet.json";
+const d = JSON.parse(readFileSync(f,"utf8")); d.aggRouter = r.contractAddress; writeFileSync(f, JSON.stringify(d,null,2));
+console.log("wrote deploy/mainnet.json aggRouter");

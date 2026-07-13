@@ -1,0 +1,63 @@
+# Sherwood testnet deployment: relayer + Caddy (auto-HTTPS) serving the web app.
+# Run from this directory:  docker compose up -d --build
+# Config + secrets come from ./.env (copy .env.example -> .env first).
+services:
+  relayer:
+    build:
+      context: ../..
+      dockerfile: deploy/vps/Dockerfile.relayer
+    env_file: .env
+    restart: unless-stopped
+    expose:
+      - "8787" # internal only — reachable via caddy, never published to the host
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:8787/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  points:
+    build:
+      context: ../..
+      dockerfile: deploy/vps/Dockerfile.points
+    env_file: .env
+    restart: unless-stopped
+    expose:
+      - "8788" # internal only — reachable via caddy /points/*
+    volumes:
+      - points_data:/app/points-data # persists the points ledger
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:8788/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  caddy:
+    build:
+      context: ../..
+      dockerfile: deploy/vps/Dockerfile.web
+      args:
+        # baked into the web bundle at build time
+        VITE_RELAYER_URL: ${VITE_RELAYER_URL}
+        VITE_RPC_URL: ${VITE_RPC_URL}
+        VITE_POINTS_URL: ${VITE_POINTS_URL}
+    env_file: .env # DOMAIN + ACME_EMAIL for Caddy auto-TLS
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      relayer:
+        condition: service_healthy
+      points:
+        condition: service_healthy
+    volumes:
+      - caddy_data:/data # persists the TLS certs across restarts
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:
+  points_data:

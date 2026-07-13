@@ -1,0 +1,10 @@
+{
+  "name": "@sherwood/relayer",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "Sherwood relayer: submits shielded transactions from a hot wallet so users never touch the pool with a funded, linkable address; collects the on-chain fee.",
+  "scripts": {
+    "start": "tsx src/server.ts"
+  }
+}

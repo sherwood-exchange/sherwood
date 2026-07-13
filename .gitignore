@@ -1,0 +1,54 @@
+# secrets — NEVER commit
+.env
+.env.*
+!.env.example
+# credential / key files (VPS deploy) — broad + case variants (Linux is case-sensitive)
+*cred*
+*CRED*
+*credential*
+*credentials*
+*.credentials
+*.secret
+*secret*
+*.pem
+*.key
+id_ed25519*
+id_rsa*
+vps*.txt
+VPS*.txt
+
+# node
+node_modules/
+**/node_modules/
+points-data/
+client/dist/
+web/app/dist/
+web/app/public/circuits/*.zkey
+web/app/public/circuits/*.wasm
+
+# foundry
+out/
+cache/
+broadcast/
+
+# circuit build artifacts (regenerate via npm run circuit:build; zkey needs a REAL ceremony for prod)
+circuits/build/
+deploy/e2e.local.json
+deploy/testnet.json
+
+# local tooling
+.claude/
+*.bak
+*.pre-*-bak
+
+# docs — publish only the root README.md + AUDIT.md
+*.md
+!/README.md
+!/AUDIT.md
+
+# marketing material — not part of the public repo
+brand/announce/
+
+# os
+.DS_Store
+Thumbs.db

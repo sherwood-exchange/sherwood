@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sherwood — Private Exchange</title>
+<link rel="icon" type="image/svg+xml" href="../brand/favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --covert:#0A0E0C;      /* near-black base */
+    --deepwood:#0F1712;    /* raised surface */
+    --green:#CCFF00;       /* Robinhood green */
+    --green-dim:#0A6B2E;   /* muted green */
+    --moon:#EAF2EC;        /* light text */
+    --sage:#7FA890;        /* muted label */
+    --line:rgba(204,255,0,.18);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    background:var(--covert);
+    color:var(--moon);
+    font-family:'IBM Plex Mono',ui-monospace,monospace;
+    -webkit-font-smoothing:antialiased;
+    overflow-x:hidden;
+  }
+  .stage{position:relative;min-height:100svh;display:flex;flex-direction:column;isolation:isolate}
+
+  /* ---------- ambient background (stand-in for the video loop) ---------- */
+  .hero-video{
+    position:absolute;inset:0;width:100%;height:100%;
+    object-fit:cover;opacity:.55;z-index:-3;
+  }
+  .ambient{position:absolute;inset:0;z-index:-3;overflow:hidden}
+  .ambient::before,.ambient::after{
+    content:"";position:absolute;inset:-20%;
+    background:
+      radial-gradient(40% 55% at 30% 20%, rgba(204,255,0,.16), transparent 60%),
+      radial-gradient(45% 60% at 72% 75%, rgba(204,255,0,.10), transparent 62%);
+    filter:blur(8px);
+    animation:drift 26s ease-in-out infinite alternate;
+  }
+  .ambient::after{
+    background:radial-gradient(35% 50% at 55% 45%, rgba(10,107,46,.22), transparent 65%);
+    animation-duration:34s;animation-direction:alternate-reverse;
+  }
+  @keyframes drift{from{transform:translate3d(-3%,-2%,0) scale(1)}to{transform:translate3d(4%,3%,0) scale(1.08)}}
+
+  /* faint canopy vignette + shafts */
+  .veil{position:absolute;inset:0;z-index:-2;
+    background:
+      linear-gradient(180deg, rgba(10,14,12,.4) 0%, transparent 30%, transparent 60%, rgba(10,14,12,.92) 100%),
+      radial-gradient(120% 80% at 50% -10%, transparent 55%, rgba(10,14,12,.85));
+  }
+  .particles{position:absolute;inset:0;z-index:-2;pointer-events:none}
+  .particles i{position:absolute;bottom:-10px;width:3px;height:3px;border-radius:50%;
+    background:var(--green);opacity:0;filter:drop-shadow(0 0 6px var(--green));
+    animation:rise linear infinite}
+  @keyframes rise{
+    0%{transform:translateY(0);opacity:0}
+    12%{opacity:.7}
+    88%{opacity:.5}
+    100%{transform:translateY(-90svh);opacity:0}
+  }
+
+  /* ---------- top bar ---------- */
+  header{display:flex;align-items:center;justify-content:space-between;
+    padding:22px clamp(20px,5vw,64px);gap:16px}
+  .brand{display:flex;align-items:center;gap:12px}
+  .brand svg{width:26px;height:26px;filter:drop-shadow(0 0 8px rgba(204,255,0,.5))}
+  .brand b{font-family:'Fraunces',serif;font-weight:600;font-size:19px;letter-spacing:.14em;color:var(--moon)}
+  nav{display:flex;align-items:center;gap:28px}
+  nav a{color:var(--sage);text-decoration:none;font-size:13px;letter-spacing:.06em;transition:color .2s}
+  nav a:hover{color:var(--moon)}
+  .launch{border:1px solid var(--line);color:var(--green);padding:9px 16px;border-radius:2px;
+    font-size:13px;letter-spacing:.06em;background:rgba(204,255,0,.05);transition:.2s}
+  .launch:hover{background:rgba(204,255,0,.12);border-color:var(--green)}
+
+  /* ---------- hero ---------- */
+  .hero{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    text-align:center;padding:40px clamp(20px,5vw,64px) 90px;gap:26px}
+  .mark{width:104px;height:104px;filter:drop-shadow(0 0 22px rgba(204,255,0,.35));animation:pulse 5.5s ease-in-out infinite}
+  @keyframes pulse{0%,100%{filter:drop-shadow(0 0 16px rgba(204,255,0,.28))}50%{filter:drop-shadow(0 0 30px rgba(204,255,0,.5))}}
+  .eyebrow{color:var(--sage);font-size:12.5px;letter-spacing:.42em;text-transform:uppercase}
+  .wordmark{font-family:'Fraunces',serif;font-weight:600;letter-spacing:.16em;
+    font-size:clamp(38px,8vw,86px);line-height:.98;color:var(--moon)}
+  h1{font-family:'Fraunces',serif;font-weight:400;font-style:italic;
+    font-size:clamp(26px,5vw,52px);line-height:1.05;color:var(--green);
+    text-shadow:0 0 30px rgba(204,255,0,.25);margin-top:-4px}
+  p.lede{max-width:52ch;color:#B9CBBE;font-size:clamp(14px,1.5vw,16px);line-height:1.7}
+  .cta{display:flex;gap:14px;flex-wrap:wrap;justify-content:center;margin-top:6px}
+  .btn{padding:13px 24px;border-radius:2px;font-size:14px;letter-spacing:.04em;text-decoration:none;transition:.2s;border:1px solid transparent}
+  .btn.primary{background:var(--green);color:#04140A;font-weight:500}
+  .btn.primary:hover{box-shadow:0 0 26px rgba(204,255,0,.5);transform:translateY(-1px)}
+  .btn.ghost{border-color:var(--line);color:var(--moon)}
+  .btn.ghost:hover{border-color:var(--green);color:var(--green)}
+
+  /* footer strip */
+  .strip{position:absolute;bottom:0;left:0;right:0;display:flex;justify-content:space-between;
+    padding:14px clamp(20px,5vw,64px);font-size:11.5px;letter-spacing:.14em;color:var(--sage);
+    border-top:1px solid var(--line);text-transform:uppercase}
+  .strip span:nth-child(2){color:#4E6B58}
+
+  @media (max-width:640px){
+    nav .hide{display:none}
+    .strip{flex-direction:column;gap:4px;align-items:center;text-align:center}
+  }
+  @media (prefers-reduced-motion:reduce){
+    .ambient::before,.ambient::after,.particles i,.mark{animation:none}
+  }
+</style>
+</head>
+<body>
+<div class="stage">
+
+  <!-- ⇢ Drop the Higgsfield hero loop here; the ambient CSS below is the fallback/poster.
+  <video class="hero-video" autoplay muted loop playsinline poster="hero-poster.jpg">
+    <source src="sherwood-hero.mp4" type="video/mp4">
+  </video> -->
+
+  <div class="ambient"></div>
+  <div class="veil"></div>
+  <div class="particles" id="particles"></div>
+
+  <header>
+    <div class="brand">
+      <!-- feather-arrow node mark -->
+      <svg viewBox="0 0 256 256" aria-label="Sherwood">
+        <g fill="none" stroke="#CCFF00" stroke-width="9" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="128" y1="54" x2="128" y2="190"/><path d="M117 70 L128 54 L139 70"/>
+          <line x1="128" y1="92" x2="100" y2="72"/><line x1="128" y1="92" x2="156" y2="72"/>
+          <line x1="128" y1="128" x2="92" y2="106"/><line x1="128" y1="128" x2="164" y2="106"/>
+          <line x1="128" y1="164" x2="86" y2="142"/><line x1="128" y1="164" x2="170" y2="142"/>
+        </g>
+        <g fill="#CCFF00">
+          <circle cx="128" cy="54" r="7"/><circle cx="100" cy="72" r="6"/><circle cx="156" cy="72" r="6"/>
+          <circle cx="92" cy="106" r="6"/><circle cx="164" cy="106" r="6"/>
+          <circle cx="86" cy="142" r="6"/><circle cx="170" cy="142" r="6"/><circle cx="128" cy="190" r="7"/>
+        </g>
+      </svg>
+      <b>SHERWOOD</b>
+    </div>
+    <nav>
+      <a class="hide" href="#">Docs</a>
+      <a class="hide" href="#">GitHub</a>
+      <a class="launch" href="#">Launch app</a>
+    </nav>
+  </header>
+
+  <main class="hero">
+    <svg class="mark" viewBox="0 0 256 256" aria-hidden="true">
+      <g fill="none" stroke="#CCFF00" stroke-width="7" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="128" y1="54" x2="128" y2="190"/><path d="M117 70 L128 54 L139 70"/>
+        <line x1="128" y1="92" x2="100" y2="72"/><line x1="128" y1="92" x2="156" y2="72"/>
+        <line x1="128" y1="128" x2="92" y2="106"/><line x1="128" y1="128" x2="164" y2="106"/>
+        <line x1="128" y1="164" x2="86" y2="142"/><line x1="128" y1="164" x2="170" y2="142"/>
+      </g>
+      <g fill="#CCFF00">
+        <circle cx="128" cy="54" r="6"/><circle cx="100" cy="72" r="5"/><circle cx="156" cy="72" r="5"/>
+        <circle cx="92" cy="106" r="5"/><circle cx="164" cy="106" r="5"/>
+        <circle cx="86" cy="142" r="5"/><circle cx="170" cy="142" r="5"/><circle cx="128" cy="190" r="6"/>
+      </g>
+    </svg>
+
+    <div class="eyebrow">Private Exchange · Robinhood Chain</div>
+    <div class="wordmark">SHERWOOD</div>
+    <h1>Leave no trace.</h1>
+    <p class="lede">Shield your assets, trade the open market, and vanish. A privacy layer for Robinhood Chain — your balance, your positions, and the link between them stay yours alone.</p>
+    <div class="cta">
+      <a class="btn primary" href="#">Enter the greenwood</a>
+      <a class="btn ghost" href="#">Read the docs</a>
+    </div>
+  </main>
+
+  <div class="strip">
+    <span>Shielded pool · Shielded swap</span>
+    <span>The Sheriff sees nothing</span>
+  </div>
+</div>
+
+<script>
+  // ambient particles (rising green embers) — cheap, reduced-motion aware
+  const wrap = document.getElementById('particles');
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if(!reduce){
+    for(let i=0;i<26;i++){
+      const p=document.createElement('i');
+      p.style.left=Math.random()*100+'%';
+      p.style.animationDuration=(9+Math.random()*12)+'s';
+      p.style.animationDelay=(-Math.random()*16)+'s';
+      const s=1+Math.random()*2.5; p.style.width=p.style.height=s+'px';
+      wrap.appendChild(p);
+    }
+  }
+</script>
+</body>
+</html>

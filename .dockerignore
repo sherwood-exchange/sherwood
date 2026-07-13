@@ -1,0 +1,23 @@
+# Keep images small and secret-free. NOTE: web/app/public/circuits/*.{wasm,zkey}
+# are intentionally NOT ignored — the web image needs them to prove in-browser.
+**/node_modules
+.git
+.github
+**/dist
+out
+cache
+broadcast
+scratchpad
+**/*.log
+client/test
+circuits/build
+# never bake secrets into an image (relayer gets its key at runtime via env_file)
+.env
+.env.*
+*cred*
+*CRED*
+*secret*
+*.pem
+*.key
+id_ed25519*
+id_rsa*

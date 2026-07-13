@@ -1,0 +1,8 @@
+# CORS RPC proxy → Robinhood Chain RPC (lets browsers avoid the ISP block without a VPN).
+# Build context = repo root.
+FROM node:22-slim
+WORKDIR /app
+COPY deploy/vps/rpc-proxy.mjs ./rpc-proxy.mjs
+ENV NODE_ENV=production
+EXPOSE 8791
+CMD ["node", "rpc-proxy.mjs"]

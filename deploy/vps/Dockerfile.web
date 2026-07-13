@@ -1,0 +1,35 @@
+# Sherwood web app, built and served by Caddy (auto-HTTPS). Build context = repo root.
+# The build bakes in the public endpoints via VITE_* build args.
+#
+# IMPORTANT: web/app/public/circuits/{transaction.wasm,transaction_final.zkey} must
+# exist in the build context (they are gitignored). On a fresh clone, copy them from
+# a dev machine or run `npm run circuit:build` before building this image.
+
+# ---- build stage ----
+FROM node:22-slim AS build
+WORKDIR /app
+
+# 1) build the client SDK (web resolves @sherwood/client -> ../../client/dist/index.js)
+COPY package.json package-lock.json* ./
+RUN npm install --no-audit --no-fund
+COPY client ./client
+RUN npx tsc -p client/tsconfig.json
+
+# 2) build the web app with the production endpoints injected
+COPY web/app ./web/app
+WORKDIR /app/web/app
+RUN npm install --no-audit --no-fund
+ARG VITE_RELAYER_URL
+ARG VITE_RPC_URL
+ARG VITE_POINTS_URL
+ENV VITE_RELAYER_URL=$VITE_RELAYER_URL
+ENV VITE_RPC_URL=$VITE_RPC_URL
+ENV VITE_POINTS_URL=$VITE_POINTS_URL
+# fail early if the (gitignored) proving artifacts weren't provided
+RUN test -f public/circuits/transaction_final.zkey || (echo "ERROR: web/app/public/circuits/transaction_final.zkey missing — copy the circuit artifacts before building" && exit 1)
+RUN npm run build
+
+# ---- serve stage ----
+FROM caddy:2-alpine
+COPY --from=build /app/web/app/dist /srv
+COPY deploy/vps/Caddyfile /etc/caddy/Caddyfile

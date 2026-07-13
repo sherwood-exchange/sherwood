@@ -1,0 +1,15 @@
+# Sherwood points indexer service. Build context = repo root.
+FROM node:22-slim
+WORKDIR /app
+
+COPY package.json package-lock.json* ./
+RUN npm install --no-audit --no-fund
+
+COPY client ./client
+COPY points ./points
+COPY deploy/testnet.json ./deploy/testnet.json
+
+ENV NODE_ENV=production
+EXPOSE 8788
+# Config (POOL_ADDRESS, RPC_URL, CHAIN_ID, POINTS_FROM_BLOCK, POINTS_DATA) from env.
+CMD ["npx", "tsx", "points/src/server.ts"]

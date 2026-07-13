@@ -1,0 +1,23 @@
+// Sherwood client SDK — public surface.
+export { initPoseidon, poseidon, poseidon2, poseidon4 } from "./poseidon.js";
+export { FIELD_SIZE, ZERO_VALUE, LEVELS, mod } from "./config.js";
+export type { Artifacts } from "./config.js";
+export { MerkleTree } from "./tree.js";
+export { Keypair, parseAddress, hexToBytes, bytesToHex } from "./keypair.js";
+export type { PublicAddress } from "./keypair.js";
+export { Note } from "./note.js";
+export { proveTransaction } from "./prover.js";
+export type { SolidityProof, OwnedInput } from "./prover.js";
+export { encodeExtData, extDataHash, ZERO_ADDR, EMPTY_BYTES } from "./extdata.js";
+export type { ExtData } from "./extdata.js";
+export { SherwoodClient } from "./pool.js";
+export type { Utxo, BuiltTx, ClientState, HistoryEntry } from "./pool.js";
+export { AssociationSet } from "./assoc.js";
+export { ASSOC_LEVELS } from "./config.js";
+export { defaultFullProve } from "./prover.js";
+export type { FullProveFn } from "./prover.js";
+export { SHERWOOD_ABI, ERC20_ABI, QUOTER_V2_ABI } from "./abi.js";
+export { quoteExactInputSingle, applySlippage } from "./quote.js";
+export type { Quote, QuoteParams } from "./quote.js";
+export { robinhoodChain, robinhoodTestnet, anvil, chainById } from "./chains.js";
+export { serializeBuiltTx, deserializeBuiltTx } from "./serde.js";

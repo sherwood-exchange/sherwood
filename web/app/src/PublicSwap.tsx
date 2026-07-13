@@ -1,0 +1,272 @@
+// Public aggregator ("Swap" tab) — a plain, non-shielded on-chain swap over the whole
+// Robinhood Chain ETH-paired token universe (public/tokenlist.json). Routes any token to any
+// other through the ETH hub via PublicRouter.sol. This is NOT private — clearly labelled.
+import { useEffect, useMemo, useRef, useState } from "react";
+import { createPublicClient, createWalletClient, custom, http, parseUnits, formatUnits, maxUint256, getAddress, type Address } from "viem";
+import { chainById, ERC20_ABI } from "@sherwood/client";
+import type { NetworkConfig } from "./config";
+import { quotePublic, resolveSpoke, isHub, type AggToken, type Spoke, NATIVE, WETH } from "./aggregator";
+import { TokenPicker } from "./TokenUI";
+
+type St = { kind: "ok" | "err" | "busy"; msg: string } | null;
+const ZERO = "0x0000000000000000000000000000000000000000" as Address;
+const ZERO_SPOKE = { kind: 0, pool: ZERO, fee: 0, ts: 0, via: ZERO, pool2: ZERO } as const;
+
+const SPOKE_C = [{ name: "kind", type: "uint8" }, { name: "pool", type: "address" }, { name: "fee", type: "uint24" }, { name: "ts", type: "int24" }, { name: "via", type: "address" }, { name: "pool2", type: "address" }] as const;
+const AGG_ABI = [
+  { type: "function", name: "swap", stateMutability: "payable", inputs: [
+    { name: "tokenIn", type: "address" }, { name: "spokeIn", type: "tuple", components: SPOKE_C },
+    { name: "tokenOut", type: "address" }, { name: "spokeOut", type: "tuple", components: SPOKE_C },
+    { name: "amountIn", type: "uint256" }, { name: "minOut", type: "uint256" }, { name: "deadline", type: "uint256" }, { name: "recipient", type: "address" },
+  ], outputs: [{ type: "uint256" }] },
+] as const;
+const spokeArg = (t: AggToken) => { const s: any = t.spoke ?? ZERO_SPOKE; return { kind: s.kind, pool: s.pool, fee: s.fee, ts: s.ts, via: s.via ?? ZERO, pool2: s.pool2 ?? ZERO }; };
+const dexTag = (t: AggToken) => (isHub(t.address) || !t.spoke ? "" : ` ·${["v4", "v3", "v2", "v2²"][t.spoke.kind]}`);
+const ERC_META = [
+  { type: "function", name: "symbol", stateMutability: "view", inputs: [], outputs: [{ type: "string" }] },
+  { type: "function", name: "name", stateMutability: "view", inputs: [], outputs: [{ type: "string" }] },
+  { type: "function", name: "decimals", stateMutability: "view", inputs: [], outputs: [{ type: "uint8" }] },
+] as const;
+
+const HUB: AggToken[] = [
+  { address: NATIVE as Address, symbol: "ETH", name: "Ether", decimals: 18, logo: "/tokens/eth.png", spoke: null },
+  { address: WETH as Address, symbol: "WETH", name: "Wrapped Ether", decimals: 18, logo: "/tokens/weth.png", spoke: null },
+];
+
+const trim = (s: string, n = 6) => { const [i, d] = s.split("."); return d ? `${i}.${d.slice(0, n)}` : i; };
+
+export function PublicSwap({ net, walletProvider, address, isConnected, onConnect }: {
+  net: NetworkConfig; walletProvider: any; address?: string; isConnected: boolean; onConnect: () => void;
+}) {
+  const [tokens, setTokens] = useState<AggToken[]>(HUB);
+  const [inTok, setInTok] = useState<AggToken>(HUB[0]);
+  const [outTok, setOutTok] = useState<AggToken | null>(null);
+  const [amt, setAmt] = useState("");
+  const [slip, setSlip] = useState("1");
+  const [q, setQ] = useState<bigint | null>(null);
+  const [quoting, setQuoting] = useState(false);
+  const [bal, setBal] = useState<bigint>(0n);
+  const [status, setStatus] = useState<St>(null);
+  const [working, setWorking] = useState(false);
+  const [feeBps, setFeeBps] = useState(30); // $SWOOD-tiered protocol fee (bps), read from the router
+
+  const pc = useMemo(() => createPublicClient({ chain: chainById(net.chainId), transport: http(net.rpcUrl) }), [net]);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // read the caller's $SWOOD fee tier from the router (0.30% default, less/free for holders)
+  useEffect(() => {
+    if (!isConnected || !address || !net.aggRouter) { setFeeBps(30); return; }
+    let live = true;
+    pc.readContract({ address: net.aggRouter, abi: [{ name: "feeBpsFor", type: "function", stateMutability: "view", inputs: [{ type: "address" }], outputs: [{ type: "uint256" }] }] as const, functionName: "feeBpsFor", args: [address as Address] })
+      .then((b) => { if (live) setFeeBps(Number(b)); }).catch(() => {});
+    return () => { live = false; };
+  }, [address, isConnected, net]);
+
+  // favorites + recents (persisted)
+  const [fav, setFav] = useState<Set<string>>(() => { try { return new Set(JSON.parse(localStorage.getItem("agg-fav") || "[]")); } catch { return new Set(); } });
+  const [recentAddrs, setRecentAddrs] = useState<string[]>(() => { try { return JSON.parse(localStorage.getItem("agg-recent") || "[]"); } catch { return []; } });
+  const toggleFav = (addr: string) => setFav((f) => { const n = new Set(f); if (n.has(addr)) n.delete(addr); else n.add(addr); localStorage.setItem("agg-fav", JSON.stringify([...n])); return n; });
+  const byAddr = useMemo(() => { const m = new Map<string, AggToken>(); for (const t of tokens) m.set(t.address.toLowerCase(), t); return m; }, [tokens]);
+  const recent = useMemo(() => recentAddrs.map((a) => byAddr.get(a)).filter(Boolean) as AggToken[], [recentAddrs, byAddr]);
+  const remember = (t: AggToken) => setRecentAddrs((r) => { const n = [t.address.toLowerCase(), ...r.filter((a) => a !== t.address.toLowerCase())].slice(0, 8); localStorage.setItem("agg-recent", JSON.stringify(n)); return n; });
+  const [resolving, setResolving] = useState(false);
+
+  /** Ensure a token has its `spoke` resolved (how to route it via ETH). Hub tokens need none. */
+  async function withSpoke(t: AggToken): Promise<AggToken> {
+    if (isHub(t.address) || t.spoke !== undefined) return t;
+    const sp = await resolveSpoke(pc, t.address, t.decimals, { fee: t.fee, ts: t.ts });
+    return { ...t, spoke: sp };
+  }
+  async function selectToken(t: AggToken, set: (t: AggToken) => void) {
+    remember(t);
+    set(t);
+    if (isHub(t.address) || t.spoke !== undefined) return;
+    setResolving(true);
+    try { const r = await withSpoke(t); set(r); } catch { set({ ...t, spoke: null }); } finally { setResolving(false); }
+  }
+  const chooseIn = (t: AggToken) => selectToken(t, setInTok);
+  const chooseOut = (t: AggToken) => selectToken(t, setOutTok);
+
+  /** Import an arbitrary token by address: fetch metadata on-chain, resolve its route, select it. */
+  async function importToken(addr: string, set: (t: AggToken) => void) {
+    if (!/^0x[0-9a-fA-F]{40}$/.test(addr)) return;
+    const a = getAddress(addr);
+    const existing = tokens.find((t) => t.address.toLowerCase() === a.toLowerCase());
+    if (existing) return selectToken(existing, set);
+    setResolving(true);
+    try {
+      const [sym, nm, dec] = await Promise.all([
+        pc.readContract({ address: a, abi: ERC_META, functionName: "symbol" }).catch(() => a.slice(2, 8)),
+        pc.readContract({ address: a, abi: ERC_META, functionName: "name" }).catch(() => "Imported token"),
+        pc.readContract({ address: a, abi: ERC_META, functionName: "decimals" }).catch(() => 18),
+      ]);
+      const base: AggToken = { address: a, symbol: String(sym).slice(0, 16), name: String(nm), decimals: Number(dec) };
+      const full: AggToken = { ...base, spoke: await resolveSpoke(pc, a, base.decimals) };
+      setTokens((prev) => (prev.find((x) => x.address.toLowerCase() === a.toLowerCase()) ? prev : [...prev, full]));
+      remember(full); set(full);
+    } catch { /* ignore */ } finally { setResolving(false); }
+  }
+
+  // USD pricing via USDG (≈ $1 per unit)
+  const usdg = useMemo(() => tokens.find((t) => t.symbol === "USDG"), [tokens]);
+  const [priceIn, setPriceIn] = useState<number | null>(null);
+  const [priceOut, setPriceOut] = useState<number | null>(null);
+  async function priceOf(t: AggToken, set: (n: number | null) => void) {
+    if (!usdg) return set(null);
+    if (t.address.toLowerCase() === usdg.address.toLowerCase()) return set(1);
+    try { const p = await quotePublic(pc, t, usdg, parseUnits("1", t.decimals)); set(p ? Number(formatUnits(p, usdg.decimals)) : null); } catch { set(null); }
+  }
+  useEffect(() => { setPriceIn(null); priceOf(inTok, setPriceIn); }, [inTok, usdg]);
+  useEffect(() => { setPriceOut(null); if (outTok) priceOf(outTok, setPriceOut); }, [outTok, usdg]);
+  const fmtUsd = (n: number) => (n <= 0 ? "" : n < 0.01 ? "≈ $" + n.toFixed(4) : "≈ $" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+
+  useEffect(() => {
+    fetch("/tokenlist.json").then((r) => r.json()).then(async (l: AggToken[]) => {
+      setTokens([...HUB, ...l]);
+      const initial = l.find((t) => t.symbol === "USDG") ?? l[0];
+      if (initial) { setOutTok(initial); try { setOutTok(await withSpoke(initial)); } catch { /* leave unresolved */ } }
+    }).catch(() => {});
+  }, []);
+
+  const value = useMemo(() => { try { return parseUnits(amt || "0", inTok.decimals); } catch { return 0n; } }, [amt, inTok]);
+
+  // wallet balance of the input token
+  useEffect(() => {
+    if (!isConnected || !address) { setBal(0n); return; }
+    let live = true;
+    (async () => {
+      try {
+        const b = inTok.address === NATIVE
+          ? await pc.getBalance({ address: address as Address })
+          : (await pc.readContract({ address: inTok.address, abi: ERC20_ABI, functionName: "balanceOf", args: [address as Address] })) as bigint;
+        if (live) setBal(b);
+      } catch { if (live) setBal(0n); }
+    })();
+    return () => { live = false; };
+  }, [inTok, address, isConnected, status]);
+
+  const spokeReady = (t: AggToken | null) => !!t && (isHub(t.address) || t.spoke !== undefined);
+  // debounced live quote (waits until both tokens' spokes are resolved)
+  useEffect(() => {
+    setQ(null);
+    if (timer.current) clearTimeout(timer.current);
+    if (value <= 0n || !outTok || inTok.address === outTok.address) return;
+    if (!spokeReady(inTok) || !spokeReady(outTok)) return;
+    setQuoting(true);
+    timer.current = setTimeout(async () => {
+      try { setQ(await quotePublic(pc, inTok, outTok, value)); } catch { setQ(null); } finally { setQuoting(false); }
+    }, 350);
+    return () => { if (timer.current) clearTimeout(timer.current); };
+  }, [amt, inTok, outTok, inTok.spoke, outTok?.spoke]);
+
+  // net output after the $SWOOD-tiered protocol fee (the router deducts it from the output)
+  const netOut = q != null ? (q * BigInt(10000 - feeBps)) / 10000n : null;
+  const minOut = netOut != null ? netOut - (netOut * BigInt(Math.round((parseFloat(slip) || 1) * 100)) / 10000n) : 0n;
+  const rate = netOut != null && value > 0n ? (netOut * 10n ** BigInt(inTok.decimals)) / value : 0n;
+  const usdIn = priceIn != null && amt ? priceIn * (parseFloat(amt) || 0) : null;
+  const usdOut = priceOut != null && netOut != null && outTok ? priceOut * Number(formatUnits(netOut, outTok.decimals)) : null;
+  const flip = () => { if (!outTok) return; const a = inTok, b = outTok; setInTok(b); setOutTok(a); setAmt(""); };
+
+  async function doSwap() {
+    if (!walletProvider || !address || !outTok || !net.aggRouter) return;
+    const router = net.aggRouter;
+    const human = `${amt} ${inTok.symbol} → ${outTok.symbol}`;
+    try {
+      setWorking(true);
+      const chain = chainById(net.chainId);
+      const wc = createWalletClient({ account: address as Address, chain, transport: custom(walletProvider) });
+      try { await walletProvider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x" + net.chainId.toString(16) }] }); } catch { /* manual */ }
+      if (inTok.address !== NATIVE) {
+        const allow = (await pc.readContract({ address: inTok.address, abi: ERC20_ABI, functionName: "allowance", args: [address as Address, router] })) as bigint;
+        if (allow < value) {
+          setStatus({ kind: "busy", msg: `Approving ${inTok.symbol}…` });
+          const ah = await wc.writeContract({ address: inTok.address, abi: ERC20_ABI, functionName: "approve", args: [router, maxUint256] });
+          await pc.waitForTransactionReceipt({ hash: ah });
+        }
+      }
+      setStatus({ kind: "busy", msg: `Swapping ${human}…` });
+      const deadline = BigInt(Math.floor(Date.now() / 1000) + 1800);
+      const h = await wc.writeContract({
+        address: router, abi: AGG_ABI, functionName: "swap",
+        args: [inTok.address as Address, spokeArg(inTok), outTok.address as Address, spokeArg(outTok), value, minOut, deadline, address as Address],
+        value: inTok.address === NATIVE ? value : 0n,
+      });
+      await pc.waitForTransactionReceipt({ hash: h });
+      setStatus({ kind: "ok", msg: `Swapped ${human}. tx ${h.slice(0, 10)}…` });
+      setAmt("");
+    } catch (e: any) {
+      setStatus({ kind: "err", msg: e?.shortMessage ?? e?.message ?? String(e) });
+    } finally {
+      setWorking(false);
+    }
+  }
+
+  const sameTok = !!outTok && inTok.address === outTok.address;
+  const noRoute = (!isHub(inTok.address) && inTok.spoke === null) || (!!outTok && !isHub(outTok.address) && outTok.spoke === null);
+  const disabled = working || resolving || value <= 0n || !outTok || sameTok || noRoute || (isConnected && value > bal);
+
+  return (
+    <div className="app">
+      <div className="app-head">
+        <div>
+          <h2 style={{ fontFamily: "var(--display)", fontSize: 26, margin: 0 }}>Swap</h2>
+          <p className="muted mono-sm" style={{ margin: "4px 0 0" }}>Public swap across every Robinhood Chain token — not shielded.</p>
+        </div>
+        <span className="muted mono-sm">{tokens.length - HUB.length} tokens</span>
+      </div>
+
+      <div className="desk-one">
+        <section className="card">
+          <div className="public-note">Public swap — this trade is on-chain and <b>not private</b>. For shielded trading use the private desk.</div>
+
+          <div className="asset-panel">
+            <div className="ap-top">
+              <span className="ap-label">You pay</span>
+              {isConnected && <span className="ap-bal">Balance: {trim(formatUnits(bal, inTok.decimals))}{bal > 0n && <button type="button" className="max-chip" onClick={() => setAmt(formatUnits(bal, inTok.decimals))}>MAX</button>}</span>}
+            </div>
+            <div className="ap-main">
+              <input className="ap-amount" inputMode="decimal" placeholder="0.0" value={amt} onChange={(e) => setAmt(e.target.value)} />
+              <TokenPicker tokens={tokens} value={inTok} onChange={chooseIn} exclude={outTok?.address} fav={fav} onFav={toggleFav} recent={recent} onImport={(a) => importToken(a, setInTok)} />
+            </div>
+            {usdIn != null && usdIn > 0 && <div className="ap-usd">{fmtUsd(usdIn)}</div>}
+          </div>
+
+          <div className="swap-dir-wrap">
+            <button type="button" className="swap-dir" onClick={flip} aria-label="Switch direction">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M7 4v16m0 0-3-3m3 3 3-3M17 20V4m0 0-3 3m3-3 3 3" /></svg>
+            </button>
+          </div>
+
+          <div className="asset-panel">
+            <div className="ap-top"><span className="ap-label">You receive</span></div>
+            <div className="ap-main">
+              <div className={`ap-amount ap-readonly ${netOut != null ? "" : "muted"}`}>{quoting ? <span className="spin" /> : netOut != null && outTok ? trim(formatUnits(netOut, outTok.decimals), 8) : "0.0"}</div>
+              {outTok && <TokenPicker tokens={tokens} value={outTok} onChange={chooseOut} exclude={inTok.address} fav={fav} onFav={toggleFav} recent={recent} onImport={(a) => importToken(a, setOutTok)} />}
+            </div>
+            {usdOut != null && usdOut > 0 && <div className="ap-usd">{fmtUsd(usdOut)}</div>}
+          </div>
+
+          <div className="swap-meta">
+            <div className="sm-row"><span>Rate</span><span>{rate > 0n && outTok ? `1 ${inTok.symbol} ≈ ${trim(formatUnits(rate, outTok.decimals), 6)} ${outTok.symbol}` : quoting ? "fetching…" : "—"}</span></div>
+            <div className="sm-row"><span>Fee</span><span>{feeBps === 0 ? <b style={{ color: "var(--lime)" }}>0% — $SWOOD holder</b> : `${(feeBps / 100).toFixed(2)}%${isConnected ? "" : ""}`}{feeBps > 0 && <span className="muted" style={{ marginLeft: 6, fontSize: 11 }}>· hold $SWOOD to cut it</span>}</span></div>
+            <div className="sm-row"><span>Max slippage</span><span className="slip-input"><input inputMode="decimal" value={slip} onChange={(e) => setSlip(e.target.value)} />%</span></div>
+            {q && outTok && <div className="sm-row dim"><span>Min received</span><span>{trim(formatUnits(minOut, outTok.decimals), 8)} {outTok.symbol}</span></div>}
+            <div className="sm-row dim"><span>Route</span><span>{inTok.symbol}{dexTag(inTok)} → ETH → {outTok ? `${outTok.symbol}${dexTag(outTok)}` : "—"}</span></div>
+          </div>
+
+          {!isConnected ? (
+            <button className="btn block" style={{ marginTop: 14 }} onClick={onConnect}>Connect wallet</button>
+          ) : (
+            <button className="btn block" style={{ marginTop: 14 }} disabled={disabled} onClick={doSwap}>
+              {resolving ? "Finding best route…" : sameTok ? "Select different tokens" : noRoute ? "No route found" : value > bal ? `Insufficient ${inTok.symbol}` : "Swap"}
+            </button>
+          )}
+
+          {status && (
+            <div className={`status ${status.kind}`}>{status.kind === "busy" && <span className="spin" />}{status.msg}</div>
+          )}
+        </section>
+      </div>
+    </div>
+  );
+}

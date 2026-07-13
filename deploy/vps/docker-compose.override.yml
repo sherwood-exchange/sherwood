@@ -1,0 +1,62 @@
+# Publishes the relayer + points APIs directly on the host, so they run without Caddy.
+# (Caddy auto-TLS needs a public domain; sherwood.spot won't get a Let's Encrypt cert.)
+# Host 8787 is taken by an unrelated service on this VPS, so the relayer is published on
+# 8790 (container still listens on 8787 internally).
+# Reachable at http://<VPS_IP>:8790 (relayer) and :8788 (points).
+# Bring these up with:  docker compose up -d --build relayer points
+services:
+  relayer:
+    ports:
+      - "8790:8787"
+  points:
+    ports:
+      - "8788:8788"
+  # Caddy also fronts the RPC proxy at /rpc, so wait for it too.
+  caddy:
+    depends_on:
+      rpc:
+        condition: service_healthy
+  # ASP auto-approver: publishes the association root as deposits arrive, so notes become
+  # spendable without manual "Approve deposits" clicks. Needs ASP_PRIVATE_KEY in .env
+  # (the pool's ASP/owner key); idles harmlessly until it is set.
+  asp:
+    build:
+      context: ../..
+      dockerfile: deploy/vps/Dockerfile.asp
+    env_file: .env
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:8792/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+  # Ops watchdog: auto-tops up the relayer + ASP hot wallets from FUNDER_PRIVATE_KEY and
+  # logs/alerts on unhealthy services or a low funder. Status at :8793/status (internal).
+  watchdog:
+    build:
+      context: ../..
+      dockerfile: deploy/vps/Dockerfile.watchdog
+    env_file: .env
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:8793/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 3s
+      retries: 5
+  # CORS RPC proxy so the browser can reach the Robinhood RPC via the VPS IP (no VPN).
+  # Frontend rpcUrl -> http://<VPS_IP>:8791  (or https://sherwood.spot/rpc via Caddy)
+  rpc:
+    build:
+      context: ../..
+      dockerfile: deploy/vps/Dockerfile.rpc
+    environment:
+      RPC_UPSTREAM: ${RPC_URL}
+      PORT: "8791"
+    restart: unless-stopped
+    ports:
+      - "8791:8791"
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:8791/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 5

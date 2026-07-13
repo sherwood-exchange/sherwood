@@ -1,0 +1,19 @@
+# Sherwood relayer service. Build context = repo root.
+#   docker build -f deploy/vps/Dockerfile.relayer -t sherwood-relayer .
+FROM node:22-slim
+WORKDIR /app
+
+# Install deps from the root manifest (the relayer imports the client SDK sources).
+# tsx is a devDependency and is needed at runtime, so we do a full install.
+COPY package.json package-lock.json* ./
+RUN npm install --no-audit --no-fund
+
+# Only the pieces the relayer touches.
+COPY client ./client
+COPY relayer ./relayer
+COPY deploy/testnet.json ./deploy/testnet.json
+
+ENV NODE_ENV=production
+EXPOSE 8787
+# Config comes from the container environment (see docker-compose env_file).
+CMD ["npx", "tsx", "relayer/src/server.ts"]

@@ -1,0 +1,26 @@
+{
+  "name": "economyos-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "economyOS — an autonomous GAME agent for the Sherwood private-DEX economy on Robinhood Chain.",
+  "scripts": {
+    "start": "tsx src/economyos.ts",
+    "ask": "tsx src/ask.ts",
+    "acp:serve": "tsx src/acp-provider.ts",
+    "acp:hire": "tsx src/acp-client.ts",
+    "sherwood:swap": "tsx src/sherwood-exec.ts",
+    "rebalance": "tsx src/rebalance.ts"
+  },
+  "dependencies": {
+    "@virtuals-protocol/game": "^0.1.7",
+    "@virtuals-protocol/game-twitter-node": "^0.1.2",
+    "@virtuals-protocol/game-twitter-plugin": "^0.1.2",
+    "viem": "^2.54.6",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

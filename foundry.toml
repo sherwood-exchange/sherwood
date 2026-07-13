@@ -1,0 +1,34 @@
+[profile.default]
+src = "src"
+out = "out"
+libs = ["lib"]
+solc = "0.8.24"
+optimizer = true
+optimizer_runs = 200
+via_ir = false
+fs_permissions = [
+    { access = "read", path = "./circuits" },
+    { access = "read-write", path = "./deploy" },
+]
+remappings = [
+    "forge-std/=lib/forge-std/src/",
+    "@openzeppelin/=lib/openzeppelin-contracts/",
+    "poseidon-solidity/=lib/poseidon-solidity/contracts/",
+]
+
+[lint]
+# `unsafe-typecast`: the int256<->uint256 casts in the field-encoding math
+#   (_publicAmount) are provably in range — guarded by MAX_EXT_AMOUNT/MAX_FEE
+#   (both 2**248, well under 2**255) — so the "may truncate" lint is a false
+#   positive here; it is inherent to the signed-amount ↔ field-element design.
+# `block-timestamp`: only the deadline check in the test MockRouter.
+exclude_lints = ["unsafe-typecast", "block-timestamp"]
+# never lint generated code or tests
+ignore = ["src/verifiers/Verifier.sol", "test/**"]
+
+# Each transact does 23 on-chain Poseidon hashes (tree insert), so cap the
+# invariant campaign to a tractable size — enough to surface accounting bugs.
+[invariant]
+runs = 48
+depth = 16
+fail_on_revert = true
