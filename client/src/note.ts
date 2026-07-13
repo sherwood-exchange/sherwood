@@ -76,9 +76,16 @@ export class Note {
   }
 
   nullifier(keypair: Keypair, merkleIndex: number | bigint): bigint {
+    return this.nullifierWithKey(keypair.spendKey, merkleIndex);
+  }
+
+  /** Nullifier under an explicit owner private key (per-swap stealth keys, M-1).
+   *  Matches the circuit: sign = Poseidon(privKey, commitment, idx),
+   *  nullifier = Poseidon(commitment, idx, sign). */
+  nullifierWithKey(privKey: bigint, merkleIndex: number | bigint): bigint {
     const idx = BigInt(merkleIndex);
     const c = this.commitment();
-    const sign = keypair.sign(c, idx);
+    const sign = poseidon([privKey, c, idx]);
     return poseidon([c, idx, sign]);
   }
 

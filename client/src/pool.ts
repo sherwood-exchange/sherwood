@@ -5,7 +5,7 @@
 import type { PublicClient, Address } from "viem";
 import { getAddress } from "viem";
 import { SHERWOOD_ABI } from "./abi.js";
-import { Keypair, PublicAddress } from "./keypair.js";
+import { Keypair, PublicAddress, deriveSwapStealthKey } from "./keypair.js";
 import { poseidon } from "./poseidon.js";
 import { Note } from "./note.js";
 import { MerkleTree } from "./tree.js";
@@ -18,6 +18,9 @@ export interface Utxo {
   note: Note;
   index: number;
   nullifier: bigint;
+  /** Owner private key: the master spendKey for normal notes, a per-swap
+   *  stealth key for swap claim notes (M-1). */
+  privKey: bigint;
 }
 
 export interface BuiltTx {
@@ -30,11 +33,14 @@ export interface BuiltTx {
 
 /** Serializable client state for an incremental-sync cache (e.g. localStorage). */
 export interface ClientState {
-  version: 2;
+  version: 3;
   pool: string;
   syncedToBlock: string;
   leaves: string[];
-  owned: { amount: string; assetId: string; blinding: string; label: string; index: number }[];
+  // v3: each owned entry records its note's pubKey — the master pubKey for normal
+  // notes, a per-swap stealth pubKey for swap claim notes (M-1). v2 caches (no
+  // pubKey) are migrated in place: every pre-fix note used the master key.
+  owned: { amount: string; assetId: string; pubKey?: string; blinding: string; label: string; index: number }[];
   spent: string[];
   // Approved association-set labels. Persisted because sync() only fetches NEW blocks —
   // without this, a warm-started client has an empty association set and can't build a
@@ -50,6 +56,28 @@ export interface HistoryEntry {
 }
 
 const assetIdOf = (token: string): bigint => BigInt(getAddress(token));
+
+/** Reconstruct a swap claim note from its decrypted ECIES placeholder + the
+ *  on-chain amountOut/label, and recover its owner key. Tries, in order:
+ *   1. the per-swap stealth key re-derived from the decrypted blinding (M-1) —
+ *      Poseidon(amountOut, assetId, stealthPub, blinding, label) must equal the
+ *      on-chain commitment;
+ *   2. the master pubKey (legacy pre-fix claim notes; kept permanently).
+ *  Returns null if neither candidate reproduces the commitment. */
+export function recoverClaimNote(
+  keypair: Keypair,
+  decrypted: Note,
+  amountOut: bigint,
+  label: bigint,
+  commitment: bigint
+): { note: Note; privKey: bigint } | null {
+  const stealth = deriveSwapStealthKey(keypair.spendKey, decrypted.blinding);
+  const stealthNote = new Note({ amount: amountOut, assetId: decrypted.assetId, pubKey: stealth.pub, blinding: decrypted.blinding, label });
+  if (stealthNote.commitment() === commitment) return { note: stealthNote, privKey: stealth.priv };
+  const legacyNote = new Note({ amount: amountOut, assetId: decrypted.assetId, pubKey: keypair.pubKey, blinding: decrypted.blinding, label });
+  if (legacyNote.commitment() === commitment) return { note: legacyNote, privKey: keypair.spendKey };
+  return null;
+}
 
 export class SherwoodClient {
   readonly pool: `0x${string}`;
@@ -181,15 +209,19 @@ export class SherwoodClient {
       const note = Note.tryDecrypt(this.keypair, c.enc);
       if (!note) continue;
       let real = note;
+      let privKey = this.keypair.spendKey;
       if (real.commitment() !== c.commitment) {
-        // swap claim note: recover the amount from the SwapExecuted event
+        // swap claim note: recover the amount from the SwapExecuted event, the
+        // label from the Deposit event, and the owner key from the blinding (M-1)
         const amountOut = swapAmountByIndex.get(c.index);
         if (amountOut === undefined) continue;
-        real = new Note({ amount: amountOut, assetId: note.assetId, pubKey: this.keypair.pubKey, blinding: note.blinding, label: depositLabelByIndex.get(c.index) ?? note.label });
-        if (real.commitment() !== c.commitment) continue;
+        const rec = recoverClaimNote(this.keypair, note, amountOut, depositLabelByIndex.get(c.index) ?? note.label, c.commitment);
+        if (!rec) continue;
+        real = rec.note;
+        privKey = rec.privKey;
       }
       if (real.amount === 0n) continue;
-      this.owned.push({ note: real, index: c.index, nullifier: real.nullifier(this.keypair, c.index) });
+      this.owned.push({ note: real, index: c.index, privKey, nullifier: real.nullifierWithKey(privKey, c.index) });
     }
 
     for (const l of nullifierLogs as any[]) this.spent.add(l.args.nullifier as bigint);
@@ -237,11 +269,11 @@ export class SherwoodClient {
   /** Snapshot state for a persistent cache; restore with `load` to skip re-scanning. */
   snapshot(): ClientState {
     return {
-      version: 2,
+      version: 3,
       pool: this.pool,
       syncedToBlock: (this.syncedToBlock ?? this.fromBlock - 1n).toString(),
       leaves: this.tree.leaves().map((l) => l.toString()),
-      owned: this.owned.map((u) => ({ amount: u.note.amount.toString(), assetId: u.note.assetId.toString(), blinding: u.note.blinding.toString(), label: u.note.label.toString(), index: u.index })),
+      owned: this.owned.map((u) => ({ amount: u.note.amount.toString(), assetId: u.note.assetId.toString(), pubKey: u.note.pubKey.toString(), blinding: u.note.blinding.toString(), label: u.note.label.toString(), index: u.index })),
       spent: [...this.spent].map((n) => n.toString()),
       assoc: this.assoc.labels().map((l) => l.toString()),
     };
@@ -252,13 +284,28 @@ export class SherwoodClient {
     if (s.pool.toLowerCase() !== this.pool.toLowerCase()) throw new Error("cache is for a different pool");
     // Reject pre-v2 caches (no persisted association set) so the caller falls back to a
     // full scan that rebuilds it — otherwise spends fail with "not in the association set".
-    if ((s as { version?: number }).version !== 2) throw new Error("cache version too old — rescanning");
+    // v2 caches (no per-note pubKey) are accepted and migrated in place: every pre-fix
+    // note was owned by the master key, so defaulting pubKey to it is provably correct
+    // and avoids a forced rescan.
+    const version = (s as { version?: number }).version;
+    if (version !== 2 && version !== 3) throw new Error("cache version too old — rescanning");
     this.tree = new MerkleTree();
     this.tree.insertMany(s.leaves.map((x) => BigInt(x)));
     for (const l of s.assoc ?? []) this.assoc.add(BigInt(l));
     this.owned = s.owned.map((o) => {
-      const note = new Note({ amount: BigInt(o.amount), assetId: BigInt(o.assetId), pubKey: this.keypair.pubKey, blinding: BigInt(o.blinding), label: BigInt(o.label ?? "0") });
-      return { note, index: o.index, nullifier: note.nullifier(this.keypair, o.index) };
+      const pubKey = o.pubKey !== undefined ? BigInt(o.pubKey) : this.keypair.pubKey;
+      const blinding = BigInt(o.blinding);
+      let privKey = this.keypair.spendKey;
+      if (pubKey !== this.keypair.pubKey) {
+        // stealth-owned swap claim note (M-1): re-derive its key and verify it
+        // actually opens the stored pubKey — a corrupt cache must not silently
+        // produce unspendable notes (caller falls back to a full rescan).
+        const stealth = deriveSwapStealthKey(this.keypair.spendKey, blinding);
+        if (stealth.pub !== pubKey) throw new Error("cache corrupt: cannot re-derive stealth key for a cached note — rescanning");
+        privKey = stealth.priv;
+      }
+      const note = new Note({ amount: BigInt(o.amount), assetId: BigInt(o.assetId), pubKey, blinding, label: BigInt(o.label ?? "0") });
+      return { note, index: o.index, privKey, nullifier: note.nullifierWithKey(privKey, o.index) };
     });
     this.spent = new Set(s.spent.map((x) => BigInt(x)));
     this.syncedToBlock = BigInt(s.syncedToBlock);
@@ -408,14 +455,11 @@ export class SherwoodClient {
    *  proceeds re-shield with a FRESH label (they are new value from public
    *  liquidity → re-screened by the ASP before they can be spent).
    *
-   *  ⚠️ M-1 (known limitation — swaps are NOT unlinkable): `extData.swapPubKey`
-   *  below is the account's master pubKey in cleartext, so an observer can link all
-   *  of one account's swaps (and tie them to that account's other notes). Transfers
-   *  and unshields are unaffected — only the swap leg leaks. The fix is a per-swap
-   *  stealth owner key (childPub = Poseidon(H(spendKey, nonce)) placed in
-   *  swapPubKey, nonce kept to spend the claim note); it's a deep per-note-key
-   *  change tracked as a dedicated follow-up, not done here to keep the fix set
-   *  atomic and independently testable. */
+   *  M-1 fix: `extData.swapPubKey` is a per-swap STEALTH pubKey derived from
+   *  (spendKey, swapBlinding) — never the master pubKey — so an observer cannot
+   *  link an account's swaps to each other or to its other notes. The blinding
+   *  already rides inside the ECIES `encryptedSwapNote`, so sync() re-derives
+   *  the stealth key with zero extra on-chain data. */
   async buildSwap(token: string, amountIn: bigint, tokenOut: string, opts: { minAmountOut: bigint; poolFee: number; deadline: bigint; relayer?: `0x${string}`; fee?: bigint }): Promise<BuiltTx> {
     await this.ensureSynced();
     const assetId = assetIdOf(token);
@@ -427,9 +471,11 @@ export class SherwoodClient {
 
     // claim note (proceeds): amount AND label are unknown until settle — the pool
     // computes the actual amountOut and derives a UNIQUE on-chain label (C-1), both
-    // recovered from the SwapExecuted / Deposit events during sync.
+    // recovered from the SwapExecuted / Deposit events during sync. Its owner is a
+    // per-swap stealth key derived from the fresh blinding (M-1).
     const swapBlinding = Note.zero(this.keypair.pubKey).blinding;
-    const claimPlaceholder = new Note({ amount: 0n, assetId: assetIdOf(tokenOut), pubKey: this.keypair.pubKey, blinding: swapBlinding, label: 0n });
+    const stealth = deriveSwapStealthKey(this.keypair.spendKey, swapBlinding);
+    const claimPlaceholder = new Note({ amount: 0n, assetId: assetIdOf(tokenOut), pubKey: stealth.pub, blinding: swapBlinding, label: 0n });
 
     const extData = this.baseExtData(assetId);
     extData.extAmount = -amountIn;
@@ -437,7 +483,7 @@ export class SherwoodClient {
     extData.fee = fee;
     extData.tokenOut = getAddress(tokenOut) as `0x${string}`;
     extData.minAmountOut = opts.minAmountOut;
-    extData.swapPubKey = this.keypair.pubKey;
+    extData.swapPubKey = stealth.pub;
     extData.swapBlinding = swapBlinding;
     extData.poolFee = opts.poolFee;
     extData.deadline = opts.deadline;
@@ -476,7 +522,7 @@ export class SherwoodClient {
     inputs: Utxo[]; outputs: Note[]; publicAmountSigned: bigint; publicAsset: bigint; extData: ExtData;
     txLabel: bigint; associationRoot: bigint; depositLabel: bigint; assocPath: import("./tree.js").MerklePath;
   }): Promise<BuiltTx> {
-    const ownedInputs: OwnedInput[] = o.inputs.map((u) => ({ note: u.note, index: u.index }));
+    const ownedInputs: OwnedInput[] = o.inputs.map((u) => ({ note: u.note, index: u.index, privKey: u.privKey }));
     const proof = await proveTransaction(
       {
         keypair: this.keypair,

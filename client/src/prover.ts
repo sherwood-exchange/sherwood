@@ -11,6 +11,9 @@ import { MerkleTree, MerklePath } from "./tree.js";
 export interface OwnedInput {
   note: Note;
   index: number; // leaf index in the tree
+  /** Owner private key for this note; defaults to the master spendKey. Swap
+   *  claim notes are owned by a per-swap stealth key (M-1). */
+  privKey?: bigint;
 }
 
 export interface SolidityProof {
@@ -80,16 +83,17 @@ export function assembleWitness(args: WitnessArgs): AssembledWitness {
   const inPathElements: bigint[][] = [];
   const inputNullifiers: bigint[] = [];
 
-  for (const { note, index } of inputs) {
+  for (const { note, index, privKey } of inputs) {
     const isReal = note.amount !== 0n;
+    const key = privKey ?? keypair.spendKey; // dummy padding stays on the master key
     inAmount.push(note.amount);
     inAssetId.push(note.assetId);
-    inPrivateKey.push(keypair.spendKey);
+    inPrivateKey.push(key);
     inBlinding.push(note.blinding);
     inLabel.push(note.label);
     inPathIndices.push(BigInt(index));
     inPathElements.push(isReal ? tree.path(index).pathElements : zeroPath());
-    inputNullifiers.push(note.nullifier(keypair, index));
+    inputNullifiers.push(note.nullifierWithKey(key, index));
   }
 
   const outAmount: bigint[] = [];

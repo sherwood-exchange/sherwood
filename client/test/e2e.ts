@@ -29,7 +29,10 @@ const KEY1 = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d
 const CLEAR_RECIPIENT = "0x90F79bf6EB2c4f870365E785982E1f101E93b906"; // anvil #3
 
 const transport = http("http://127.0.0.1:8545");
-const publicClient = createPublicClient({ chain: anvil, transport });
+// cacheTime: 0 — viem caches getBlockNumber for up to pollingInterval (4s), so a sync()
+// right after waitForTransactionReceipt can scan to a STALE head and miss the just-mined
+// block's events (observed: receipt in block 6, cached head 5). Disable for the test.
+const publicClient = createPublicClient({ chain: anvil, transport, cacheTime: 0 });
 const submitter = createWalletClient({ account: privateKeyToAccount(KEY0), chain: anvil, transport });
 const shielder = createWalletClient({ account: privateKeyToAccount(KEY1), chain: anvil, transport });
 
@@ -149,14 +152,36 @@ async function main() {
   assert.equal(aliceClient.balance(usdg), 30_000000n, "Alice USDG after swap wrong");
   ok("swap: Alice swapped 40 USDG→40 AAPLx via the public AMM, proceeds re-shielded into a private note");
 
-  // ASP screens the swap proceeds' fresh label (re-screened as new value).
+  // --- M-1: the swap's claim-note owner is a per-swap STEALTH key, not the master pubKey ---
+  assert.notEqual(swap.extData.swapPubKey, 0n, "swapPubKey must be set");
+  assert.notEqual(swap.extData.swapPubKey, alice.pubKey, "swapPubKey must NOT be the master pubKey (M-1)");
+  ok("M-1: swapPubKey is a stealth key (≠ master pubKey) — swaps not linkable to the account");
+
+  // --- SECOND SWAP: fresh stealth key per swap; sync must discover BOTH claim notes ---
+  const quoted2 = await quoteExactInputSingle(publicClient, quoter, { tokenIn: usdg, tokenOut: aapl, amountIn: 10_000000n, fee: 3000 });
+  const swap2 = await aliceClient.buildSwap(usdg, 10_000000n, aapl, {
+    minAmountOut: applySlippage(quoted2.amountOut, 50),
+    poolFee: 3000,
+    deadline: 99999999999n,
+  });
+  assert.notEqual(swap2.extData.swapPubKey, alice.pubKey, "second swapPubKey must not be the master pubKey");
+  assert.notEqual(swap2.extData.swapPubKey, swap.extData.swapPubKey, "each swap must use a DIFFERENT stealth key");
+  await submit(submitter, swap2);
+  aliceClient.invalidate();
+  await aliceClient.sync();
+  assert.equal(aliceClient.balance(aapl), 50_000000000000000000n, "sync should discover BOTH stealth claim notes (40+10 AAPLx)");
+  assert.equal(aliceClient.balance(usdg), 20_000000n, "Alice USDG after second swap wrong");
+  ok("M-1: second swap used a different stealth key; sync recovered both claim notes (balance = 40+10 AAPLx)");
+
+  // ASP screens the swap proceeds' fresh labels (re-screened as new value).
   await aspApproveAll();
   aliceClient.invalidate();
   await aliceClient.sync();
 
-  // --- POST-SWAP: spend the re-shielded note. Works only if (a) the local tree
-  // stayed in lockstep through the swap's extra ZERO_VALUE leaf AND (b) the swap's
-  // fresh label is now in the association set. ---
+  // --- POST-SWAP: spend a STEALTH-owned claim note (real proof, stealth privKey in
+  // the witness). Works only if (a) the local tree stayed in lockstep through the
+  // swap's extra ZERO_VALUE leaf, (b) the swap's fresh label is now in the
+  // association set, AND (c) the stealth key re-derived from the blinding signs it. ---
   const AAPL_CLEAR = "0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65"; // anvil #4
   const beforeA = await aaplBal(AAPL_CLEAR);
   const un2 = await aliceClient.buildUnshield(aapl, 20_000000000000000000n, AAPL_CLEAR as `0x${string}`);
@@ -164,17 +189,30 @@ async function main() {
   aliceClient.invalidate();
   await aliceClient.sync();
   assert.equal((await aaplBal(AAPL_CLEAR)) - beforeA, 20_000000000000000000n, "post-swap AAPL unshield failed");
-  assert.equal(aliceClient.balance(aapl), 20_000000000000000000n, "post-swap AAPL change wrong");
-  ok("post-swap: spent the re-shielded note (fresh label approved; tree consistent through swap)");
+  assert.equal(aliceClient.balance(aapl), 30_000000000000000000n, "post-swap AAPL change wrong (20 change + 10 second claim)");
+  ok("post-swap: spent a stealth-owned claim note via unshield with a REAL proof (fresh label approved; tree consistent)");
 
   // --- CACHE: snapshot → restore into a fresh client, balances match with no full rescan ---
   const snap = aliceClient.snapshot();
+  assert.equal(snap.version, 3, "snapshot should be ClientState v3");
+  assert(snap.owned.some((o) => BigInt(o.pubKey!) !== alice.pubKey), "v3 snapshot should record a stealth pubKey for claim notes");
   const restored = new SherwoodClient({ publicClient, pool, keypair: alice, artifacts: nodeArtifacts, fromBlock: 0n });
   restored.load(snap);
   assert.equal(restored.balance(usdg), aliceClient.balance(usdg), "restored USDG balance mismatch");
   assert.equal(restored.balance(aapl), aliceClient.balance(aapl), "restored AAPL balance mismatch");
   assert.equal(restored.tree.root(), aliceClient.tree.root(), "restored tree root mismatch");
-  ok(`cache: snapshot→restore reproduced balances + tree root (${snap.leaves.length} leaves, no rescan)`);
+  ok(`cache: v3 snapshot→restore reproduced balances + tree root (${snap.leaves.length} leaves, no rescan)`);
+
+  // --- v3 ROUND-TRIP SPEND: the RESTORED client re-derives the second swap's stealth
+  // key from the cached (pubKey, blinding) and spends that claim note with a real proof ---
+  const beforeB = await aaplBal(AAPL_CLEAR);
+  const claim2 = restored.utxos(aapl).find((u) => u.note.pubKey === swap2.extData.swapPubKey);
+  assert(claim2, "restored client should hold the second stealth claim note");
+  const un3 = await restored.buildUnshield(aapl, 10_000000000000000000n, AAPL_CLEAR as `0x${string}`);
+  assert(un3.reservedNullifiers!.includes(claim2!.nullifier), "the spend should consume the STEALTH claim note");
+  await submit(submitter, un3);
+  assert.equal((await aaplBal(AAPL_CLEAR)) - beforeB, 10_000000000000000000n, "restored-client stealth unshield failed");
+  ok("cache v3: restored client spent the second stealth claim note (key re-derived + verified on load, real proof)");
 
   // --- HISTORY: viewing-key self-disclosure lists spent + held notes ---
   const hist = aliceClient.history();

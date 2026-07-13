@@ -75,6 +75,20 @@ export class Keypair {
   }
 }
 
+/** Domain tag for per-swap stealth keys (M-1): keccak256("sherwood/swap-stealth-v1") % FIELD. */
+export const SWAP_STEALTH_DOMAIN = toField(keccak_256(enc.encode("sherwood/swap-stealth-v1")));
+
+/** Per-swap stealth owner key (M-1 fix). Deterministic from the master spend key
+ *  and the swap's fresh blinding, so the scanner — which recovers `swapBlinding`
+ *  from the ECIES `encryptedSwapNote` — can re-derive it with zero extra on-chain
+ *  data. Domain-separated from `sign` (Poseidon(spendKey, commitment, idx)) by
+ *  the leading tag. `pub` goes into `extData.swapPubKey` in place of the master
+ *  pubKey, so an observer can no longer link an account's swaps together. */
+export function deriveSwapStealthKey(spendKey: bigint, swapBlinding: bigint): { priv: bigint; pub: bigint } {
+  const priv = poseidon([SWAP_STEALTH_DOMAIN, spendKey, swapBlinding]);
+  return { priv, pub: poseidon([priv]) };
+}
+
 export interface PublicAddress {
   pubKey: bigint;
   viewPub: Uint8Array;

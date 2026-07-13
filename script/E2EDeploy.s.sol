@@ -8,7 +8,7 @@ import {Groth16Verifier} from "../src/verifiers/Verifier.sol";
 import {IVerifier} from "../src/interfaces/IVerifier.sol";
 import {ISwapRouter} from "../src/interfaces/ISwapRouter.sol";
 import {MockERC20} from "../test/mocks/MockERC20.sol";
-import {MockRouter} from "../test/mocks/MockRouter.sol";
+import {MockSwapExecutor} from "../test/mocks/MockSwapExecutor.sol";
 import {MockQuoter, IRate} from "../test/mocks/MockQuoter.sol";
 
 /// @notice Full local stack for the end-to-end test (anvil). Deploys the REAL
@@ -23,9 +23,12 @@ contract E2EDeploy is Script {
         vm.startBroadcast();
 
         Groth16Verifier verifier = new Groth16Verifier();
-        MockRouter router = new MockRouter();
-        MockQuoter quoter = new MockQuoter(IRate(address(router)));
-        SwapExecutor executor = new SwapExecutor();
+        // The REAL SwapExecutor routes through hardcoded Robinhood-mainnet DEX hubs
+        // that don't exist on anvil (the forge tests vm.etch mocks at those addresses,
+        // but etch can't persist through --broadcast), so the pool gets a mock executor
+        // speaking the same `swap` calling convention instead.
+        MockSwapExecutor executor = new MockSwapExecutor();
+        MockQuoter quoter = new MockQuoter(IRate(address(executor)));
         MockERC20 usdg = new MockERC20("Global Dollar", "USDG", 6);
         MockERC20 aapl = new MockERC20("Apple Stock Token", "AAPLx", 18);
 
@@ -33,17 +36,19 @@ contract E2EDeploy is Script {
         assets[0] = address(usdg);
         assets[1] = address(aapl);
         // deployer is both owner and ASP for the local demo
-        Sherwood pool = new Sherwood(IVerifier(address(verifier)), executor, 23, msg.sender, msg.sender, assets);
+        Sherwood pool = new Sherwood(
+            IVerifier(address(verifier)), SwapExecutor(payable(address(executor))), 23, msg.sender, msg.sender, assets
+        );
 
         // 1 USDG (6dp) -> 1e12 raw AAPL units (18dp), i.e. price parity by tokens.
-        router.setRate(1e12, 1);
+        executor.setRate(1e12, 1);
         usdg.mint(SHIELDER, 1_000e6);
 
         vm.stopBroadcast();
 
         string memory j = "e2e";
         vm.serializeAddress(j, "verifier", address(verifier));
-        vm.serializeAddress(j, "router", address(router));
+        vm.serializeAddress(j, "router", address(executor)); // kept for json-shape compat
         vm.serializeAddress(j, "quoter", address(quoter));
         vm.serializeAddress(j, "executor", address(executor));
         vm.serializeAddress(j, "usdg", address(usdg));
