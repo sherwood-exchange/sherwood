@@ -14,6 +14,7 @@ const A = {
   AAPL: "0xaF3D76f1834A1d425780943C99Ea8A608f8a93f9",
   TSLA: "0x322F0929c4625eD5bAd873c95208D54E1c003b2d",
   NVDA: "0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC",
+  // (remaining tokenized stocks live in STOCKS below)
   PAIR_HOODRAT: "0x451c0DA3b774045a822A129eeDcc5C667DcbfDD8",
   PAIR_VIRTUAL: "0xd95e8e2Cd04c207625C6F23c974d365a5F3A91D3",
   PAIR_VEX: "0x817f16F5D8da83d1B089B082c0172af3923618dA",
@@ -52,13 +53,38 @@ async function v3Out(pc: PublicClient, tokenIn: string, tokenOut: string, fee: n
 }
 
 // v4 native-ETH pool (ETH = address(0) < any ERC20, so currency0 = ETH, currency1 = erc20).
-// USDG uses fee 500/ts 10; tokenized stocks use fee 50000/ts 1000 (deepest hookless pools).
-const V4_STOCK_FEE = 50000, V4_STOCK_TS = 1000;
+// USDG uses fee 500/ts 10; each tokenized stock's deepest hookless pool sits on its own
+// fee tier. This map mirrors SwapExecutor.stockRoute on-chain — keep the two in sync.
+const STOCKS: Record<string, { fee: number; ts: number }> = {
+  [lc("0xaF3D76f1834A1d425780943C99Ea8A608f8a93f9")]: { fee: 50000, ts: 1000 }, // AAPL
+  [lc("0x322F0929c4625eD5bAd873c95208D54E1c003b2d")]: { fee: 50000, ts: 1000 }, // TSLA
+  [lc("0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC")]: { fee: 50000, ts: 1000 }, // NVDA
+  [lc("0x86923f96303D656E4aa86D9d42D1e57ad2023fdC")]: { fee: 50000, ts: 1000 }, // AMD
+  [lc("0x4a0E65A3EcceC6dBe60AE065F2e7bb85Fae35eEa")]: { fee: 50000, ts: 1000 }, // SPCX
+  [lc("0x2e0847E8910a9732eB3fb1bb4b70a580ADAD4FE3")]: { fee: 50000, ts: 1000 }, // GOOGL
+  [lc("0x12f190a9F9d7D37a250758b26824B97CE941bF54")]: { fee: 10000, ts: 200 }, // AMZN
+  [lc("0xb8DBf92F9741c9ac1c32115E78581f23509916FD")]: { fee: 10000, ts: 200 }, // APLD
+  [lc("0x6330D8C3178a418788dF01a47479c0ce7CCF450b")]: { fee: 10000, ts: 200 }, // COIN
+  [lc("0x5f10A1C971B69e47e059e1dC91901B59b3fB49C3")]: { fee: 10000, ts: 200 }, // CRWV
+  [lc("0x25C288E6D899b9BC30160965aD9644c67e73bE0C")]: { fee: 10000, ts: 200 }, // F
+  [lc("0x1b0E319c6A659F002271B69dB8A7df2F911c153E")]: { fee: 10000, ts: 200 }, // GME
+  [lc("0xc72b96e0E48ecd4DC75E1e45396e26300BC39681")]: { fee: 10000, ts: 200 }, // INTC
+  [lc("0xfF080c8ce2E5feadaCa0Da81314Ae59D232d4afD")]: { fee: 10000, ts: 200 }, // MU
+  [lc("0x408c14038a04f7bD235329E26d2bf569ee20e250")]: { fee: 10000, ts: 200 }, // NU
+  [lc("0xb0992820E760d836549ba69BC7598b4af75dEE03")]: { fee: 10000, ts: 200 }, // ORCL
+  [lc("0x894E1EC2D74FFE5AEF8Dc8A9e84686acCB964F2A")]: { fee: 10000, ts: 200 }, // PLTR
+  [lc("0xD5f3879160bc7c32ebb4dC785F8a4F505888de68")]: { fee: 10000, ts: 200 }, // QQQ
+  [lc("0x3b14C39E89D60D627b42a1A4CA45b5bb45Fc12e2")]: { fee: 10000, ts: 200 }, // RKLB
+  [lc("0x411eFb0E7f985935DAec3D4C3ebaEa0d0AD7D89f")]: { fee: 10000, ts: 200 }, // SLV
+  [lc("0x117cc2133c37B721F49dE2A7a74833232B3B4C0C")]: { fee: 10000, ts: 200 }, // SPY
+  [lc("0xdF0992E440dD0be65BD8439b609d6D4366bf1CB5")]: { fee: 100, ts: 1 }, // CRCL
+  [lc("0xB90A19fF0Af67f7779afF50A882A9CfF42446400")]: { fee: 100, ts: 1 }, // SNDK
+};
 async function v4Out(pc: PublicClient, cin: string, erc20: string, fee: number, ts: number, amtIn: bigint): Promise<bigint> {
   const r = (await pc.readContract({ address: A.V4_QUOTER as Address, abi: V4_QUOTER_ABI, functionName: "quoteExactInputSingle", args: [{ poolKey: { currency0: A.NATIVE as Address, currency1: erc20 as Address, fee, tickSpacing: ts, hooks: A.NATIVE as Address }, zeroForOne: lc(cin) === lc(A.NATIVE), exactAmount: amtIn, hookData: "0x" }] })) as readonly [bigint, bigint];
   return r[0];
 }
-const isStock = (t: string) => t === lc(A.AAPL) || t === lc(A.TSLA) || t === lc(A.NVDA);
+const isStock = (t: string) => STOCKS[t] !== undefined;
 
 async function toWeth(pc: PublicClient, token: string, amt: bigint): Promise<bigint> {
   const t = lc(token);
@@ -68,7 +94,7 @@ async function toWeth(pc: PublicClient, token: string, amt: bigint): Promise<big
   if (t === lc(A.HOODRAT)) return v2Out(pc, A.PAIR_HOODRAT, token, amt);
   if (t === lc(A.VIRTUAL)) return v2Out(pc, A.PAIR_VIRTUAL, token, amt);
   if (t === lc(A.VEX)) return v2Out(pc, A.PAIR_VIRTUAL, A.VIRTUAL, await v2Out(pc, A.PAIR_VEX, A.VEX, amt));
-  if (isStock(t)) return v4Out(pc, token, token, V4_STOCK_FEE, V4_STOCK_TS, amt); // stock -> ETH(=WETH)
+  if (isStock(t)) return v4Out(pc, token, token, STOCKS[t].fee, STOCKS[t].ts, amt); // stock -> ETH(=WETH)
   throw new Error("unsupported token");
 }
 
@@ -80,7 +106,7 @@ async function fromWeth(pc: PublicClient, token: string, weth: bigint): Promise<
   if (t === lc(A.HOODRAT)) return v2Out(pc, A.PAIR_HOODRAT, A.WETH, weth);
   if (t === lc(A.VIRTUAL)) return v2Out(pc, A.PAIR_VIRTUAL, A.WETH, weth);
   if (t === lc(A.VEX)) return v2Out(pc, A.PAIR_VEX, A.VIRTUAL, await v2Out(pc, A.PAIR_VIRTUAL, A.WETH, weth));
-  if (isStock(t)) return v4Out(pc, A.NATIVE, token, V4_STOCK_FEE, V4_STOCK_TS, weth); // ETH(=WETH) -> stock
+  if (isStock(t)) return v4Out(pc, A.NATIVE, token, STOCKS[t].fee, STOCKS[t].ts, weth); // ETH(=WETH) -> stock
   throw new Error("unsupported token");
 }
 

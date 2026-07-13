@@ -35,9 +35,21 @@ contract SwapExecutor {
     address internal constant VEX = 0x8Ff92566f2e81BDd68EDfAa8cde73942A723796b; // v2 (via VIRTUAL)
 
     // Tokenized stocks — hookless v4 pools paired with **native ETH** (same working leg as USDG).
+    // Each stock's deepest pool sits on its own fee tier, so routes live in a small
+    // owner-tunable registry: new listings / tier moves need no executor redeploy.
     address internal constant AAPL = 0xaF3D76f1834A1d425780943C99Ea8A608f8a93f9;
     address internal constant TSLA = 0x322F0929c4625eD5bAd873c95208D54E1c003b2d;
     address internal constant NVDA = 0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC;
+
+    struct StockRoute {
+        uint24 fee;
+        int24 ts; // ts == 0 -> not a registered stock
+    }
+
+    address public immutable owner;
+    mapping(address => StockRoute) public stockRoute;
+
+    event StockRouteSet(address indexed token, uint24 fee, int24 ts);
     // v2 pairs
     address internal constant PAIR_HOODRAT = 0x451c0DA3b774045a822A129eeDcc5C667DcbfDD8; // WETH/HOODRAT
     address internal constant PAIR_VIRTUAL = 0xd95e8e2Cd04c207625C6F23c974d365a5F3A91D3; // WETH/VIRTUAL
@@ -59,6 +71,21 @@ contract SwapExecutor {
 
     error SwapFailed();
     error UnsupportedToken();
+
+    constructor() {
+        owner = msg.sender;
+        // Seed the original listings (deepest hookless ETH/<stock> pools, fee 5% / ts 1000).
+        stockRoute[AAPL] = StockRoute(V4_STOCK_FEE, V4_STOCK_TS);
+        stockRoute[TSLA] = StockRoute(V4_STOCK_FEE, V4_STOCK_TS);
+        stockRoute[NVDA] = StockRoute(V4_STOCK_FEE, V4_STOCK_TS);
+    }
+
+    /// @notice Register (or retune) a tokenized stock's native-ETH v4 pool. `ts = 0` delists.
+    function setStockRoute(address token, uint24 fee, int24 ts) external {
+        require(msg.sender == owner, "not owner");
+        stockRoute[token] = StockRoute(fee, ts);
+        emit StockRouteSet(token, fee, ts);
+    }
 
     receive() external payable {} // native ETH from unwrap + v4 take
 
@@ -89,7 +116,7 @@ contract SwapExecutor {
         if (token == HOODRAT) return _v2(PAIR_HOODRAT, HOODRAT, WETH, amt);
         if (token == VIRTUAL) return _v2(PAIR_VIRTUAL, VIRTUAL, WETH, amt);
         if (token == VEX) return _v2(PAIR_VIRTUAL, VIRTUAL, WETH, _v2(PAIR_VEX, VEX, VIRTUAL, amt));
-        if (token == AAPL || token == TSLA || token == NVDA) return _stockToWeth(token, amt);
+        if (stockRoute[token].ts != 0) return _stockToWeth(token, amt);
         revert UnsupportedToken();
     }
 
@@ -101,7 +128,7 @@ contract SwapExecutor {
         if (token == HOODRAT) return _v2(PAIR_HOODRAT, WETH, HOODRAT, weth);
         if (token == VIRTUAL) return _v2(PAIR_VIRTUAL, WETH, VIRTUAL, weth);
         if (token == VEX) return _v2(PAIR_VEX, VIRTUAL, VEX, _v2(PAIR_VIRTUAL, WETH, VIRTUAL, weth));
-        if (token == AAPL || token == TSLA || token == NVDA) return _wethToStock(token, weth);
+        if (stockRoute[token].ts != 0) return _wethToStock(token, weth);
         revert UnsupportedToken();
     }
 
@@ -154,14 +181,16 @@ contract SwapExecutor {
 
     /// @dev WETH -> ETH -> stock (native-ETH v4 leg, the pattern that works for USDG).
     function _wethToStock(address stock, uint256 wethAmt) internal returns (uint256) {
+        StockRoute memory r = stockRoute[stock];
         IWETH(WETH).withdraw(wethAmt); // WETH -> ETH
-        return _v4Single(NATIVE, stock, wethAmt, wethAmt, V4_STOCK_FEE, V4_STOCK_TS);
+        return _v4Single(NATIVE, stock, wethAmt, wethAmt, r.fee, r.ts);
     }
 
     /// @dev stock -> ETH -> WETH.
     function _stockToWeth(address stock, uint256 amt) internal returns (uint256 wethOut) {
+        StockRoute memory r = stockRoute[stock];
         IERC20(stock).safeTransfer(UNIVERSAL_ROUTER, amt); // fund router for SETTLE
-        uint256 ethOut = _v4Single(stock, NATIVE, amt, 0, V4_STOCK_FEE, V4_STOCK_TS);
+        uint256 ethOut = _v4Single(stock, NATIVE, amt, 0, r.fee, r.ts);
         IWETH(WETH).deposit{value: ethOut}(); // ETH -> WETH
         wethOut = ethOut;
     }

@@ -89,9 +89,10 @@ export const NETWORKS: Record<string, NetworkConfig> = {
     swoodGovernor: "0x0b6c6f778e7ac3dd576658fbc35a0ac643f79fd7", // SwoodGovernor.sol — $SWOOD signaling governance
 
     poolFee: 3000,
-    // Allowlisted assets (ASSETS in .env): WETH(=ETH) + USDG + 5 meme + 3 tokenized stocks.
+    // Allowlisted assets (setAsset on-chain): WETH(=ETH) + USDG + 5 meme + all 23 tokenized stocks.
     // Swaps route through the WETH hub across Uniswap v2/v3/v4 (see routing.ts + SwapExecutor.sol);
-    // stocks route stock↔ETH↔WETH via hookless v4 pools (fee 5%, ts 1000).
+    // stocks route stock↔ETH↔WETH via hookless v4 pools on per-stock fee tiers (STOCKS in routing.ts,
+    // mirrored on-chain in SwapExecutor.stockRoute).
     tokens: [
       { symbol: "ETH", address: "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73", decimals: 18, native: true, logo: "/tokens/eth.png" },
       { symbol: "WETH", address: "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73", decimals: 18, logo: "/tokens/weth.png" },
@@ -101,10 +102,32 @@ export const NETWORKS: Record<string, NetworkConfig> = {
       { symbol: "HOODRAT", address: "0x8e62F281f282686fCa6dCB39288069a93fC23F1c", decimals: 18, logo: "/tokens/hoodrat.jpg" },
       { symbol: "VIRTUAL", address: "0xc6911796042b15d7Fa4F6CDe69e245DdCd3d9c31", decimals: 18, logo: "/tokens/virtual.png" },
       { symbol: "VEX", address: "0x8Ff92566f2e81BDd68EDfAa8cde73942A723796b", decimals: 18, logo: "/tokens/vex.jpg" },
-      // Tokenized stocks — now tradable via hookless ETH-paired v4 pools (routed through the ETH hub).
+      // Tokenized stocks — hookless ETH-paired v4 pools (routed through the ETH hub).
+      // Deep pools (5% tier): AAPL/TSLA/NVDA/AMD/SPCX/GOOGL. The rest sit on thinner
+      // seed pools — fine for small private positions, watch price impact on size.
       { symbol: "AAPL", address: "0xaF3D76f1834A1d425780943C99Ea8A608f8a93f9", decimals: 18, logo: "/tokens/aapl.png" },
       { symbol: "TSLA", address: "0x322F0929c4625eD5bAd873c95208D54E1c003b2d", decimals: 18, logo: "/tokens/tsla.png" },
       { symbol: "NVDA", address: "0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC", decimals: 18, logo: "/tokens/nvda.png" },
+      { symbol: "AMD", address: "0x86923f96303D656E4aa86D9d42D1e57ad2023fdC", decimals: 18, logo: "https://cdn.robinhood.com/ncw_assets/logos/0x86923f96303d656e4aa86d9d42d1e57ad2023fdc.png" },
+      { symbol: "SPCX", address: "0x4a0E65A3EcceC6dBe60AE065F2e7bb85Fae35eEa", decimals: 18, logo: "https://cdn.robinhood.com/ncw_assets/logos/0x4a0e65a3eccec6dbe60ae065f2e7bb85fae35eea.png" },
+      { symbol: "GOOGL", address: "0x2e0847E8910a9732eB3fb1bb4b70a580ADAD4FE3", decimals: 18, logo: "https://cdn.robinhood.com/ncw_assets/logos/0x2e0847e8910a9732eb3fb1bb4b70a580adad4fe3.png" },
+      { symbol: "AMZN", address: "0x12f190a9F9d7D37a250758b26824B97CE941bF54", decimals: 18, logo: "https://cdn.robinhood.com/ncw_assets/logos/0x12f190a9f9d7d37a250758b26824b97ce941bf54.png" },
+      { symbol: "APLD", address: "0xb8DBf92F9741c9ac1c32115E78581f23509916FD", decimals: 18, logo: "https://cdn.robinhood.com/ncw_assets/logos/0xb8dbf92f9741c9ac1c32115e78581f23509916fd.png" },
+      { symbol: "COIN", address: "0x6330D8C3178a418788dF01a47479c0ce7CCF450b", decimals: 18, logo: "https://cdn.robinhood.com/ncw_assets/logos/0x6330d8c3178a418788df01a47479c0ce7ccf450b.png" },
+      { symbol: "CRCL", address: "0xdF0992E440dD0be65BD8439b609d6D4366bf1CB5", decimals: 18, logo: "https://cdn.robinhood.com/ncw_assets/logos/0xdf0992e440dd0be65bd8439b609d6d4366bf1cb5.png" },
+      { symbol: "CRWV", address: "0x5f10A1C971B69e47e059e1dC91901B59b3fB49C3", decimals: 18, logo: "https://cdn.robinhood.com/ncw_assets/logos/0x5f10a1c971b69e47e059e1dc91901b59b3fb49c3.png" },
+      { symbol: "F", address: "0x25C288E6D899b9BC30160965aD9644c67e73bE0C", decimals: 18, logo: "https://cdn.robinhood.com/ncw_assets/logos/0x25c288e6d899b9bc30160965ad9644c67e73be0c.png" },
+      { symbol: "GME", address: "0x1b0E319c6A659F002271B69dB8A7df2F911c153E", decimals: 18, logo: "https://cdn.robinhood.com/ncw_assets/logos/0x1b0e319c6a659f002271b69db8a7df2f911c153e.png" },
+      { symbol: "INTC", address: "0xc72b96e0E48ecd4DC75E1e45396e26300BC39681", decimals: 18, logo: "https://cdn.robinhood.com/ncw_assets/logos/0xc72b96e0e48ecd4dc75e1e45396e26300bc39681.png" },
+      { symbol: "MU", address: "0xfF080c8ce2E5feadaCa0Da81314Ae59D232d4afD", decimals: 18, logo: "https://cdn.robinhood.com/ncw_assets/logos/0xff080c8ce2e5feadaca0da81314ae59d232d4afd.png" },
+      { symbol: "NU", address: "0x408c14038a04f7bD235329E26d2bf569ee20e250", decimals: 18, logo: "https://cdn.robinhood.com/ncw_assets/logos/0x408c14038a04f7bd235329e26d2bf569ee20e250.png" },
+      { symbol: "ORCL", address: "0xb0992820E760d836549ba69BC7598b4af75dEE03", decimals: 18, logo: "https://cdn.robinhood.com/ncw_assets/logos/0xb0992820e760d836549ba69bc7598b4af75dee03.png" },
+      { symbol: "PLTR", address: "0x894E1EC2D74FFE5AEF8Dc8A9e84686acCB964F2A", decimals: 18, logo: "https://cdn.robinhood.com/ncw_assets/logos/0x894e1ec2d74ffe5aef8dc8a9e84686accb964f2a.png" },
+      { symbol: "QQQ", address: "0xD5f3879160bc7c32ebb4dC785F8a4F505888de68", decimals: 18, logo: "https://cdn.robinhood.com/ncw_assets/logos/0xd5f3879160bc7c32ebb4dc785f8a4f505888de68.png" },
+      { symbol: "RKLB", address: "0x3b14C39E89D60D627b42a1A4CA45b5bb45Fc12e2", decimals: 18, logo: "https://cdn.robinhood.com/ncw_assets/logos/0x3b14c39e89d60d627b42a1a4ca45b5bb45fc12e2.png" },
+      { symbol: "SLV", address: "0x411eFb0E7f985935DAec3D4C3ebaEa0d0AD7D89f", decimals: 18, logo: "https://cdn.robinhood.com/ncw_assets/logos/0x411efb0e7f985935daec3d4c3ebaea0d0ad7d89f.png" },
+      { symbol: "SNDK", address: "0xB90A19fF0Af67f7779afF50A882A9CfF42446400", decimals: 18, logo: "https://cdn.robinhood.com/ncw_assets/logos/0xb90a19ff0af67f7779aff50a882a9cff42446400.png" },
+      { symbol: "SPY", address: "0x117cc2133c37B721F49dE2A7a74833232B3B4C0C", decimals: 18, logo: "https://cdn.robinhood.com/ncw_assets/logos/0x117cc2133c37b721f49de2a7a74833232b3b4c0c.png" },
     ],
   },
 };

@@ -22,7 +22,7 @@
 Sherwood is a full-stack exchange for **Robinhood Chain** (Arbitrum Orbit L2) with two trading paths and an AI-native commerce layer:
 
 1. **Shielded pool** — value is held in fully-shielded notes. Identity, balance, note asset, and the deposit↔withdrawal link are hidden by a ZK commitment/nullifier scheme (Groth16 + Poseidon Merkle tree). Four actions through one entrypoint: **shield, private transfer, unshield, and shielded swap** that routes through public Uniswap liquidity and re-shields the proceeds.
-2. **Public aggregator** — a non-custodial any-token swap router across **Uniswap v2, v3, and v4** liquidity, routed through an ETH hub. 1,000+ tokens including **tokenized stocks (AAPL, TSLA, NVDA)**, with a **$SWOOD-tiered protocol fee**.
+2. **Public aggregator** — a non-custodial any-token swap router across **Uniswap v2, v3, and v4** liquidity, routed through an ETH hub. 1,000+ tokens including **all 23 tokenized stocks** (AAPL, TSLA, NVDA, SPCX, GOOGL, AMZN, SPY, QQQ, …), with a **$SWOOD-tiered protocol fee**. The same 23 stocks are also allowlisted in the shielded pool for private trading.
 3. **Sherwood Exchange agent** — an autonomous agent, **live and earning on [Virtuals ACP](https://app.virtuals.io/)**, that sells live quotes, portfolio reads, real on-chain swap execution, and ETH on-ramping to Robinhood Chain for USDC escrow. See [`agent/`](agent/).
 
 ### Feature map
@@ -45,7 +45,7 @@ Sherwood is a full-stack exchange for **Robinhood Chain** (Arbitrum Orbit L2) wi
 | Contract | Address |
 |---|---|
 | Sherwood shielded pool | `0x6504c957ec52b279667e6836b102a0c2586e919c` |
-| SwapExecutor | `0x1221374DE0101c64EfaEa33AEc5E24DcCABc3d69` |
+| SwapExecutor | `0x97C68D7cd147eBbcC448F845b22a0BE74bA1125D` |
 | AggRouter (public aggregator) | `0x01bfe0d5d43be24f2edf626bdd2ff41af5dc4e0c` |
 | $SWOOD token | `0xB1cB27F78B7335df8C3d8ebF0881A15BeD6BeB60` |
 | SwoodStaking | `0x34677e5dd609d79ca2a413c51976154db7c1973f` |
