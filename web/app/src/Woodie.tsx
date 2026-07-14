@@ -118,7 +118,7 @@ export function Woodie(props: WoodieProps) {
       <div className="woodie-log" ref={scroller}>
         {msgs.map((m, i) => (
           <div key={i} className={`chat-row ${m.role}`}>
-            {m.role === "woodie" && <div className="chat-ava" aria-hidden><img src="/woodie.png" alt="" width={26} height={26} /></div>}
+            {m.role === "woodie" && <div className="chat-ava" aria-hidden><img src="/woodie-head.png" alt="" width={26} height={26} /></div>}
             <div className="chat-col">
               <div className={`bubble ${m.role}`}>{m.text}</div>
               {m.role === "woodie" && m.action && <ActionView action={m.action} {...props} explorer={explorer} />}
@@ -127,7 +127,7 @@ export function Woodie(props: WoodieProps) {
         ))}
         {thinking && (
           <div className="chat-row woodie">
-            <div className="chat-ava" aria-hidden><img src="/woodie.png" alt="" width={26} height={26} /></div>
+            <div className="chat-ava" aria-hidden><img src="/woodie-head.png" alt="" width={26} height={26} /></div>
             <div className="chat-col"><div className="bubble woodie typing"><span /><span /><span /></div></div>
           </div>
         )}
