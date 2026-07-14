@@ -10,7 +10,9 @@
     "acp:serve": "tsx src/acp-provider.ts",
     "acp:hire": "tsx src/acp-client.ts",
     "sherwood:swap": "tsx src/sherwood-exec.ts",
-    "rebalance": "tsx src/rebalance.ts"
+    "rebalance": "tsx src/rebalance.ts",
+    "plan": "tsx src/plan-cli.ts",
+    "plan:serve": "tsx src/plan-server.ts"
   },
   "dependencies": {
     "@virtuals-protocol/game": "^0.1.7",

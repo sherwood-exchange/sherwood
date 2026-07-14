@@ -34,6 +34,21 @@ services:
       retries: 5
       start_period: 5s
 
+  plan:
+    build:
+      context: ../..
+      dockerfile: deploy/vps/Dockerfile.plan
+    env_file: .env # VIRTUALS_API_KEY + PLAN_MODEL + RPC_URL for the LLM planner
+    restart: unless-stopped
+    expose:
+      - "8795" # internal only — reachable via caddy /agent/*
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:8795/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 8s
+
   caddy:
     build:
       context: ../..
@@ -43,6 +58,7 @@ services:
         VITE_RELAYER_URL: ${VITE_RELAYER_URL}
         VITE_RPC_URL: ${VITE_RPC_URL}
         VITE_POINTS_URL: ${VITE_POINTS_URL}
+        VITE_PLAN_URL: ${VITE_PLAN_URL}
     env_file: .env # DOMAIN + ACME_EMAIL for Caddy auto-TLS
     restart: unless-stopped
     ports:
@@ -52,6 +68,8 @@ services:
       relayer:
         condition: service_healthy
       points:
+        condition: service_healthy
+      plan:
         condition: service_healthy
     volumes:
       - caddy_data:/data # persists the TLS certs across restarts

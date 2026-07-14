@@ -14,14 +14,15 @@ const ZERO = "0x0000000000000000000000000000000000000000" as Address;
 const ZERO_SPOKE = { kind: 0, pool: ZERO, fee: 0, ts: 0, via: ZERO, pool2: ZERO } as const;
 
 const SPOKE_C = [{ name: "kind", type: "uint8" }, { name: "pool", type: "address" }, { name: "fee", type: "uint24" }, { name: "ts", type: "int24" }, { name: "via", type: "address" }, { name: "pool2", type: "address" }] as const;
-const AGG_ABI = [
+// Exported so the basket-investing agent (Plan.tsx) reuses the exact same router call.
+export const AGG_ABI = [
   { type: "function", name: "swap", stateMutability: "payable", inputs: [
     { name: "tokenIn", type: "address" }, { name: "spokeIn", type: "tuple", components: SPOKE_C },
     { name: "tokenOut", type: "address" }, { name: "spokeOut", type: "tuple", components: SPOKE_C },
     { name: "amountIn", type: "uint256" }, { name: "minOut", type: "uint256" }, { name: "deadline", type: "uint256" }, { name: "recipient", type: "address" },
   ], outputs: [{ type: "uint256" }] },
 ] as const;
-const spokeArg = (t: AggToken) => { const s: any = t.spoke ?? ZERO_SPOKE; return { kind: s.kind, pool: s.pool, fee: s.fee, ts: s.ts, via: s.via ?? ZERO, pool2: s.pool2 ?? ZERO }; };
+export const spokeArg = (t: AggToken) => { const s: any = t.spoke ?? ZERO_SPOKE; return { kind: s.kind, pool: s.pool, fee: s.fee, ts: s.ts, via: s.via ?? ZERO, pool2: s.pool2 ?? ZERO }; };
 /** DEX version a token's ETH leg executes on (display-only; hub tokens have no leg). */
 const dexLabel = (t: AggToken) => (isHub(t.address) || !t.spoke ? undefined : ["v4", "v3", "v2", "v2²"][t.spoke.kind]);
 /** Human-readable form of common wallet/router errors (display-only). */

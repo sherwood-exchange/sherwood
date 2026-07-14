@@ -20,6 +20,12 @@
 		reverse_proxy rpc:8791
 	}
 
+	# Investing-planner agent ("Robin"): https://{$DOMAIN}/agent/{plan,universe,health}.
+	# Strip the /agent prefix and forward to the plan service (LLM key stays server-side).
+	handle_path /agent/* {
+		reverse_proxy plan:8795
+	}
+
 	# Static single-page app (circuit .wasm/.zkey are served from /srv/circuits).
 	handle {
 		root * /srv

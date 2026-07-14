@@ -22,9 +22,11 @@ RUN npm install --no-audit --no-fund
 ARG VITE_RELAYER_URL
 ARG VITE_RPC_URL
 ARG VITE_POINTS_URL
+ARG VITE_PLAN_URL
 ENV VITE_RELAYER_URL=$VITE_RELAYER_URL
 ENV VITE_RPC_URL=$VITE_RPC_URL
 ENV VITE_POINTS_URL=$VITE_POINTS_URL
+ENV VITE_PLAN_URL=$VITE_PLAN_URL
 # fail early if the (gitignored) proving artifacts weren't provided
 RUN test -f public/circuits/transaction_final.zkey || (echo "ERROR: web/app/public/circuits/transaction_final.zkey missing — copy the circuit artifacts before building" && exit 1)
 RUN npm run build

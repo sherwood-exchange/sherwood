@@ -627,3 +627,94 @@ html, body, #root { max-width: 100%; }
   .route-chips { justify-content: flex-start; }
   .sm-row.route-row { flex-direction: column; align-items: flex-start; gap: 6px; }
 }
+
+/* ---------- Robin — investing planner agent (#/plan) ---------- */
+.agent-head { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; }
+.agent-avatar {
+  flex: 0 0 auto; width: 52px; height: 52px; border-radius: 16px; display: grid; place-items: center;
+  color: var(--covert); background: var(--lime);
+  box-shadow: 0 0 0 1px rgba(204,255,0,0.35), 0 8px 24px -10px rgba(204,255,0,0.5);
+}
+.agent-id { min-width: 0; }
+.agent-name-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.agent-name { font-family: var(--display); font-size: 26px; margin: 0; line-height: 1; }
+.verified-badge {
+  display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; letter-spacing: 0.2px;
+  color: var(--lime); padding: 3px 9px; border: 1px solid rgba(204,255,0,0.4); border-radius: 999px;
+  background: rgba(204,255,0,0.06); transition: background 0.15s, border-color 0.15s;
+}
+.verified-badge:hover { background: rgba(204,255,0,0.12); border-color: var(--lime); }
+.agent-tag { margin: 4px 0 0; }
+
+/* goal form */
+.plan-form { display: flex; flex-direction: column; }
+.plan-label { font-size: 12px; color: var(--moon-dim); font-weight: 600; letter-spacing: 0.3px; margin-bottom: 7px; display: block; }
+.plan-goal {
+  width: 100%; resize: vertical; min-height: 62px; font-family: var(--mono); font-size: 15px; color: var(--moon);
+  background: var(--panel); border: 1px solid var(--line-2); border-radius: 14px; padding: 12px 14px; line-height: 1.5;
+}
+.plan-goal:focus { outline: none; border-color: rgba(204,255,0,0.5); }
+.plan-goal::placeholder { color: var(--moon-dim); }
+.plan-row { display: flex; gap: 14px; margin-top: 14px; flex-wrap: wrap; }
+.plan-budget { flex: 1 1 140px; }
+.plan-risk { flex: 2 1 240px; }
+.plan-budget-field {
+  display: flex; align-items: center; gap: 4px; background: var(--panel); border: 1px solid var(--line-2);
+  border-radius: 12px; padding: 0 12px; height: 44px;
+}
+.plan-budget-field:focus-within { border-color: rgba(204,255,0,0.5); }
+.plan-dollar { color: var(--moon-dim); font-size: 16px; }
+.plan-budget-field input { flex: 1; min-width: 0; border: none; background: transparent; color: var(--moon); font-family: var(--mono); font-size: 16px; font-weight: 600; padding: 0; }
+.plan-budget-field input:focus { outline: none; }
+.risk-chips { display: flex; gap: 8px; }
+.risk-chip, .tune-chip {
+  flex: 1; font-family: var(--mono); font-size: 13px; font-weight: 600; color: var(--moon-dim); cursor: pointer;
+  background: var(--panel); border: 1px solid var(--line-2); border-radius: 12px; padding: 0 10px; height: 44px; transition: all 0.15s;
+}
+.risk-chip:hover, .tune-chip:hover:not(:disabled) { color: var(--moon); border-color: var(--line-2); }
+.risk-chip.active { color: var(--lime); border-color: var(--lime); background: rgba(204,255,0,0.08); }
+.plan-err { color: var(--danger); margin: 12px 0 0; }
+
+/* result */
+.plan-result { margin-top: 16px; }
+.plan-result-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; }
+.plan-result-title { font-family: var(--display); font-size: 20px; margin: 0; }
+
+/* risk meter */
+.risk-meter { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px; margin-bottom: 16px; }
+.risk-meter-top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 9px; }
+.risk-meter-label { font-size: 12px; color: var(--moon-dim); font-weight: 600; }
+.risk-meter-tier { font-size: 13px; font-weight: 700; color: var(--lime); letter-spacing: 0.3px; }
+.risk-bar { display: flex; gap: 5px; }
+.risk-seg { flex: 1; height: 8px; border-radius: 4px; background: var(--line-2); transition: background 0.2s; }
+.risk-seg.on { background: linear-gradient(90deg, var(--lime-2), var(--lime)); }
+.risk-note { margin: 9px 0 0; line-height: 1.5; }
+
+/* basket cards */
+.basket { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.basket-card { display: flex; align-items: flex-start; gap: 13px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px; transition: border-color 0.15s; }
+.basket-card:hover { border-color: var(--line-2); }
+.basket-main { flex: 1; min-width: 0; }
+.basket-top { display: flex; align-items: center; gap: 9px; }
+.basket-sym { font-size: 15px; font-weight: 700; color: var(--moon); }
+.basket-cat { font-size: 10px; font-weight: 600; letter-spacing: 0.4px; text-transform: uppercase; color: var(--moon-dim); border: 1px solid var(--line-2); border-radius: 999px; padding: 2px 8px; }
+.basket-name { display: block; font-size: 12px; margin-top: 1px; }
+.basket-rationale { font-size: 13px; color: var(--moon); opacity: 0.82; line-height: 1.5; margin: 7px 0 0; }
+.basket-alloc { flex: 0 0 auto; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+.basket-usd { font-size: 15px; font-weight: 700; color: var(--moon); }
+.basket-pct { font-size: 12px; }
+
+/* tune chips + disclaimers */
+.tune-chips { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 16px 0; }
+.tune-label { flex: 0 0 auto; }
+.tune-chip { flex: 0 0 auto; height: 36px; padding: 0 14px; }
+.tune-chip:disabled { opacity: 0.5; cursor: default; }
+.plan-disclaimer { line-height: 1.5; margin: 0 0 14px; padding: 11px 13px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
+.plan-private { text-align: center; margin: 12px 0 0; line-height: 1.5; }
+.plan-private a { color: var(--lime); }
+
+@media (max-width: 560px) {
+  .plan-row { flex-direction: column; }
+  .basket-card { padding: 12px; gap: 11px; }
+  .agent-name { font-size: 22px; }
+}

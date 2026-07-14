@@ -1,0 +1,15 @@
+# Sherwood investing-planner agent ("Robin") — the /plan + /universe HTTP API.
+# Build context = repo root. Serves the web app's #/plan page.
+FROM node:22-slim
+WORKDIR /app
+
+COPY agent/package.json agent/package-lock.json* ./
+RUN npm install --no-audit --no-fund
+
+COPY agent/src ./src
+
+ENV NODE_ENV=production
+ENV PLAN_PORT=8795
+EXPOSE 8795
+# VIRTUALS_API_KEY, PLAN_MODEL, RPC_URL come from env (deploy/vps/.env).
+CMD ["npx", "tsx", "src/plan-server.ts"]

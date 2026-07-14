@@ -15,16 +15,17 @@ import { PublicSwap } from "./PublicSwap";
 import { Bridge } from "./Bridge";
 import { Stake } from "./Stake";
 import { Govern } from "./Govern";
+import { Plan } from "./Plan";
 import { RouteChips, TokenAvatar, TokenPicker } from "./TokenUI";
 import { ToastHost, toast, dismiss } from "./Toast";
 
 type Tab = "shield" | "send" | "swap" | "withdraw";
 type Status = { kind: "ok" | "err" | "busy"; msg: string; hash?: string } | null;
-type Route = "points" | "referral" | "portfolio" | "swap" | "bridge" | "stake" | "govern" | "";
+type Route = "points" | "referral" | "portfolio" | "swap" | "bridge" | "stake" | "govern" | "plan" | "";
 
 function parseRoute(): Route {
   const h = (location.hash || "").replace(/^#\/?/, "");
-  return h === "points" || h === "referral" || h === "portfolio" || h === "swap" || h === "bridge" || h === "stake" || h === "govern" ? h : "";
+  return h === "points" || h === "referral" || h === "portfolio" || h === "swap" || h === "bridge" || h === "stake" || h === "govern" || h === "plan" ? h : "";
 }
 
 export default function App() {
@@ -379,6 +380,8 @@ export default function App() {
         />
       ) : route === "stake" ? (
         <Stake net={net} walletProvider={walletProvider} address={akAddress} isConnected={isConnected} onConnect={doConnect} />
+      ) : route === "plan" ? (
+        <Plan net={net} walletProvider={walletProvider} address={akAddress} isConnected={isConnected} onConnect={doConnect} />
       ) : route === "govern" ? (
         <Govern net={net} walletProvider={walletProvider} address={akAddress} isConnected={isConnected} onConnect={doConnect} />
       ) : route === "points" ? (
