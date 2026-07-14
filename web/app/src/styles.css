@@ -655,9 +655,14 @@ html, body, #root { max-width: 100%; }
 .woodie::before {
   content: ""; position: fixed; inset: 0; z-index: 0; pointer-events: none;
   background:
-    linear-gradient(to bottom, rgba(10,14,12,0.92) 0%, rgba(10,14,12,0.35) 30%, rgba(10,14,12,0) 55%),
+    linear-gradient(to bottom,
+      rgba(10,14,12,0.97) 0%,
+      rgba(10,14,12,0.9) 30%,
+      rgba(10,14,12,0.55) 52%,
+      rgba(10,14,12,0.12) 74%,
+      transparent 88%),
     url(/woodie-bg.png) center top / cover no-repeat;
-  opacity: 0.85;
+  opacity: 1;
 }
 .woodie > * { position: relative; z-index: 1; }
 .woodie-log {
