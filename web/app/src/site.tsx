@@ -61,6 +61,7 @@ export function Nav({
             <a className="link" href="#/bridge">Bridge</a>
             <a className="link" href="#/stake">Stake</a>
             <a className="link" href="#/govern">Govern</a>
+            <a className="link" href="#/portfolio">Portfolio</a>
           </>
         ) : (
           <>

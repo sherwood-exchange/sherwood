@@ -7,6 +7,7 @@ import { chainById, ERC20_ABI } from "@sherwood/client";
 import type { NetworkConfig } from "./config";
 import { quotePublic, resolveSpoke, isHub, type AggToken, type Spoke, NATIVE, WETH } from "./aggregator";
 import { RouteChips, TokenPicker } from "./TokenUI";
+import { toast } from "./Toast";
 
 type St = { kind: "ok" | "err" | "busy"; msg: string; hash?: string } | null;
 const ZERO = "0x0000000000000000000000000000000000000000" as Address;
@@ -61,6 +62,8 @@ export function PublicSwap({ net, walletProvider, address, isConnected, onConnec
 
   const pc = useMemo(() => createPublicClient({ chain: chainById(net.chainId), transport: http(net.rpcUrl) }), [net]);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Keep local `status` for the in-button "Approving…/Swapping…" label, but surface it as a toast.
+  const notify = (s: St) => { setStatus(s); if (s) toast({ id: "swap", kind: s.kind === "err" ? "error" : s.kind, msg: s.msg, hash: s.hash, explorer: net.explorer }); };
 
   // read the caller's $SWOOD fee tier from the router (0.30% default, less/free for holders)
   useEffect(() => {
@@ -212,12 +215,12 @@ export function PublicSwap({ net, walletProvider, address, isConnected, onConnec
       if (inTok.address !== NATIVE) {
         const allow = (await pc.readContract({ address: inTok.address, abi: ERC20_ABI, functionName: "allowance", args: [address as Address, router] })) as bigint;
         if (allow < value) {
-          setStatus({ kind: "busy", msg: `Approving ${inTok.symbol}…` });
+          notify({ kind: "busy", msg: `Approving ${inTok.symbol}…` });
           const ah = await wc.writeContract({ address: inTok.address, abi: ERC20_ABI, functionName: "approve", args: [router, maxUint256] });
           await pc.waitForTransactionReceipt({ hash: ah });
         }
       }
-      setStatus({ kind: "busy", msg: `Swapping ${human}…` });
+      notify({ kind: "busy", msg: `Swapping ${human}…` });
       const deadline = BigInt(Math.floor(Date.now() / 1000) + 1800);
       const h = await wc.writeContract({
         address: router, abi: AGG_ABI, functionName: "swap",
@@ -225,10 +228,10 @@ export function PublicSwap({ net, walletProvider, address, isConnected, onConnec
         value: inTok.address === NATIVE ? value : 0n,
       });
       await pc.waitForTransactionReceipt({ hash: h });
-      setStatus({ kind: "ok", msg: `Swapped ${human}.`, hash: h });
+      notify({ kind: "ok", msg: `Swapped ${human}.`, hash: h });
       setAmt("");
     } catch (e: any) {
-      setStatus({ kind: "err", msg: readableErr(e) });
+      notify({ kind: "err", msg: readableErr(e) });
     } finally {
       setWorking(false);
     }
@@ -306,17 +309,6 @@ export function PublicSwap({ net, walletProvider, address, isConnected, onConnec
               {working ? <><span className="spin dark" />{status?.kind === "busy" && status.msg.startsWith("Approving") ? "Approving…" : "Swapping…"}</>
                 : resolving ? "Finding best route…" : sameTok ? "Select different tokens" : noRoute ? "No route found" : value > bal ? `Insufficient ${inTok.symbol}` : "Swap"}
             </button>
-          )}
-
-          {status && (
-            <div className={`status ${status.kind}`}>
-              {status.kind === "busy" && <span className="spin" />}
-              {status.kind === "ok" && <span className="status-ico" aria-hidden>✓ </span>}
-              {status.msg}
-              {status.kind === "ok" && status.hash && (net.explorer
-                ? <a className="txlink" href={`${net.explorer}/tx/${status.hash}`} target="_blank" rel="noreferrer">View transaction ↗</a>
-                : <span className="muted"> tx {status.hash.slice(0, 10)}…</span>)}
-            </div>
           )}
         </section>
       </div>

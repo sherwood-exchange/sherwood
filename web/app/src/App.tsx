@@ -16,9 +16,10 @@ import { Bridge } from "./Bridge";
 import { Stake } from "./Stake";
 import { Govern } from "./Govern";
 import { RouteChips, TokenAvatar, TokenPicker } from "./TokenUI";
+import { ToastHost, toast, dismiss } from "./Toast";
 
 type Tab = "shield" | "send" | "swap" | "withdraw";
-type Status = { kind: "ok" | "err" | "busy"; msg: string } | null;
+type Status = { kind: "ok" | "err" | "busy"; msg: string; hash?: string } | null;
 type Route = "points" | "referral" | "portfolio" | "swap" | "bridge" | "stake" | "govern" | "";
 
 function parseRoute(): Route {
@@ -36,7 +37,6 @@ export default function App() {
   const [noteCount, setNoteCount] = useState(0);
   const [copied, setCopied] = useState(false);
   const [relayer, setRelayer] = useState<Address | null>(null);
-  const [status, setStatus] = useState<Status>(null);
   const [busy, setBusy] = useState(false);
   const [route, setRoute] = useState<Route>(parseRoute());
   const [amAsp, setAmAsp] = useState(false);
@@ -63,6 +63,12 @@ export default function App() {
   }, []);
 
   const myAddress = useMemo(() => (conn ? JSON.stringify(conn.keypair.address()) : ""), [conn]);
+
+  // Surface desk flow status as a shared toast (busy persists; ok/error auto-dismiss + tx link).
+  const setStatus = (s: Status) => {
+    if (s) toast({ id: "desk", kind: s.kind === "err" ? "error" : s.kind, msg: s.msg, hash: s.hash, explorer: net.explorer });
+    else dismiss("desk");
+  };
 
   // Reown AppKit: the modal handles wallet selection + connection; we then derive the
   // shielded account from a signature once a provider + address are available.
@@ -171,7 +177,7 @@ export default function App() {
       setBusy(true);
       setStatus({ kind: "busy", msg: `${label} — generating zero-knowledge proof (this can take a few seconds)…` });
       const hash = await fn();
-      setStatus({ kind: "ok", msg: `${label} confirmed. tx ${hash.slice(0, 10)}…` });
+      setStatus({ kind: "ok", msg: `${label} confirmed.`, hash });
       await refresh();
     } catch (e: any) {
       setStatus({ kind: "err", msg: e?.shortMessage ?? e?.message ?? String(e) });
@@ -210,7 +216,7 @@ export default function App() {
           await client.sync(); // reflect spent inputs + change note before choosing the next label
         }
       }
-      setStatus({ kind: "ok", msg: `Sent ${human}${part > 1 ? ` in ${part} transfers` : ""}. tx ${lastHash.slice(0, 10)}…` });
+      setStatus({ kind: "ok", msg: `Sent ${human}${part > 1 ? ` in ${part} transfers` : ""}.`, hash: lastHash });
       await refresh();
     } catch (e: any) {
       setStatus({ kind: "err", msg: e?.shortMessage ?? e?.message ?? String(e) });
@@ -255,7 +261,7 @@ export default function App() {
           await client.sync();
         }
       }
-      setStatus({ kind: "ok", msg: `Swapped ${human}${part > 1 ? ` in ${part} swaps` : ""}. tx ${lastHash.slice(0, 10)}…` });
+      setStatus({ kind: "ok", msg: `Swapped ${human}${part > 1 ? ` in ${part} swaps` : ""}.`, hash: lastHash });
       await refresh();
     } catch (e: any) {
       setStatus({ kind: "err", msg: e?.shortMessage ?? e?.message ?? String(e) });
@@ -297,7 +303,7 @@ export default function App() {
         }
       }
       if (isSelfNative) await unwrapEth(conn, token.address, delivered); // WETH → ETH, once for the full amount
-      setStatus({ kind: "ok", msg: `Withdrew ${human}${part > 1 ? ` in ${part} transfers` : ""}. tx ${lastHash.slice(0, 10)}…` });
+      setStatus({ kind: "ok", msg: `Withdrew ${human}${part > 1 ? ` in ${part} transfers` : ""}.`, hash: lastHash });
       await refresh();
     } catch (e: any) {
       // best-effort: unwrap whatever WETH was already delivered to self so it isn't stranded
@@ -475,13 +481,6 @@ export default function App() {
                 onSubmit={(token, amount, recipient) => withdrawMulti(token, amount, recipient)}
               />
             )}
-
-            {status && (
-              <div className={`status ${status.kind}`}>
-                {status.kind === "busy" && <span className="spin" />}
-                {status.msg}
-              </div>
-            )}
           </section>
 
           <a className="btn ghost portfolio-cta" href="#/portfolio">View your portfolio  →</a>
@@ -491,6 +490,7 @@ export default function App() {
       </div>
 
       <Footer />
+      <ToastHost />
     </>
   );
 }
@@ -548,6 +548,7 @@ function PortfolioPage({ net, conn, shielded, clear, noteCount, myAddress, copie
   const shieldedTokens = net.tokens.filter((t, i) => net.tokens.findIndex((x) => x.address === t.address) === i);
   const totalSh = shieldedTokens.reduce((s, t) => (t.halted ? s : s + (usdOf(t.symbol, shielded[t.symbol] ?? 0n, t.decimals) ?? 0)), 0);
   const totalCl = net.tokens.reduce((s, t) => (t.halted ? s : s + (usdOf(t.symbol, clear[t.symbol] ?? 0n, t.decimals) ?? 0)), 0);
+  const totalAll = totalSh + totalCl;
 
   return (
     <div className="app app-narrow">
@@ -556,10 +557,26 @@ function PortfolioPage({ net, conn, shielded, clear, noteCount, myAddress, copie
           <h2 style={{ fontFamily: "var(--display)", fontSize: 26, margin: 0 }}>Portfolio</h2>
           <p className="muted mono-sm" style={{ margin: "4px 0 0" }}>Your shielded + wallet balances on {net.label}.</p>
         </div>
-        <a className="btn ghost sm" href="#top">← Desk</a>
+        <a className="btn ghost sm" href="#/">← Desk</a>
       </div>
 
-      <section className="card">
+      {/* Uniswap-style value header — one big number, then quick actions. */}
+      <section className="card pf-hero">
+        <span className="pf-hero-label">Total value</span>
+        <span className="pf-hero-total">{fmtUsd(totalAll)}</span>
+        <div className="pf-hero-split">
+          <span className="pf-chip"><em className="pf-dot shielded" />Shielded {fmtUsd(totalSh)}</span>
+          <span className="pf-chip"><em className="pf-dot wallet" />Wallet {fmtUsd(totalCl)}</span>
+        </div>
+        <div className="pf-actions">
+          <a className="pf-action" href="#/"><span className="pf-ico" aria-hidden>↑</span>Send</a>
+          <button className="pf-action" onClick={onCopy}><span className="pf-ico" aria-hidden>↓</span>{copied ? "Copied ✓" : "Receive"}</button>
+          <a className="pf-action" href="#/bridge"><span className="pf-ico" aria-hidden>+</span>Buy</a>
+          <a className="pf-action" href="#/swap"><span className="pf-ico" aria-hidden>⇄</span>Swap</a>
+        </div>
+      </section>
+
+      <section className="card" style={{ marginTop: 16 }}>
         <h2>Your Sherwood address</h2>
         <p className="hint">Share this so others can send you private notes. It is not your wallet address.</p>
         <div className="addr-row">
@@ -574,6 +591,7 @@ function PortfolioPage({ net, conn, shielded, clear, noteCount, myAddress, copie
           <span className="card-total">{fmtUsd(totalSh)}</span>
         </div>
         <p className="hint">Private — no observer can link these to your address. · {noteCount} note{noteCount === 1 ? "" : "s"}</p>
+        <div className="holdings-th"><span>Token</span><span>Balance · Value</span></div>
         <ul className="holdings">
           {shieldedTokens.map((t) => (
             <Holding key={t.address} sym={t.symbol} name={t.name} amount={shielded[t.symbol] ?? 0n} decimals={t.decimals} halted={t.halted} logo={t.logo} usd={usdOf(t.symbol, shielded[t.symbol] ?? 0n, t.decimals)} />
@@ -587,6 +605,7 @@ function PortfolioPage({ net, conn, shielded, clear, noteCount, myAddress, copie
           <span className="card-total">{fmtUsd(totalCl)}</span>
         </div>
         <p className="hint">Unshielded balances in your connected wallet.</p>
+        <div className="holdings-th"><span>Token</span><span>Balance · Value</span></div>
         <ul className="holdings">
           {net.tokens.map((t) => (
             <Holding key={t.symbol} sym={t.symbol} name={t.name} amount={clear[t.symbol] ?? 0n} decimals={t.decimals} muted halted={t.halted} logo={t.logo} usd={usdOf(t.symbol, clear[t.symbol] ?? 0n, t.decimals)} />
@@ -594,13 +613,17 @@ function PortfolioPage({ net, conn, shielded, clear, noteCount, myAddress, copie
         </ul>
       </section>
 
-      <div className="holdings-actions" style={{ marginTop: 16 }}>
-        <button className="btn ghost sm" onClick={onRefresh} disabled={busy}>↻ Refresh</button>
-        {net.explorer && (
-          <a className="btn ghost sm" href={`${net.explorer}/address/${conn.address}`} target="_blank" rel="noreferrer">History on explorer ↗</a>
-        )}
-        <span className="muted mono-sm">{relayer ? `relayer ${relayer.slice(0, 8)}…` : "no relayer"} · values est. via USDG</span>
-      </div>
+      <section className="card holdings-card" style={{ marginTop: 16 }}>
+        <div className="holdings-head"><h2>Recent activity</h2></div>
+        <p className="hint">Your shielded activity leaves no trace here — that's the point. Public wallet history lives on the explorer.</p>
+        <div className="holdings-actions" style={{ marginTop: 4 }}>
+          <button className="btn ghost sm" onClick={onRefresh} disabled={busy}>↻ Refresh balances</button>
+          {net.explorer && (
+            <a className="btn ghost sm" href={`${net.explorer}/address/${conn.address}`} target="_blank" rel="noreferrer">Wallet history ↗</a>
+          )}
+        </div>
+        <span className="muted mono-sm" style={{ display: "block", marginTop: 12 }}>{relayer ? `relayer ${relayer.slice(0, 8)}…` : "no relayer"} · values est. via USDG</span>
+      </section>
     </div>
   );
 }

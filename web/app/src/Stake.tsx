@@ -4,10 +4,18 @@ import { useEffect, useMemo, useState } from "react";
 import { createPublicClient, createWalletClient, custom, http, parseUnits, formatUnits, maxUint256, type Address } from "viem";
 import { chainById, ERC20_ABI } from "@sherwood/client";
 import type { NetworkConfig } from "./config";
+import { toast, dismiss } from "./Toast";
 
-type St = { kind: "ok" | "err" | "busy"; msg: string } | null;
+type St = { kind: "ok" | "err" | "busy"; msg: string; hash?: string } | null;
 const SWOOD = "0xB1cB27F78B7335df8C3d8ebF0881A15BeD6BeB60" as Address;
 const trim = (s: string, n = 4) => { const [i, d] = s.split("."); return d ? `${i}.${d.slice(0, n)}` : i; };
+/** Big-number formatter: thousands separators under 10k, compact notation (4.04M) above. */
+const fmtCompact = (v: bigint, dec: number, frac = 2) => {
+  const n = Number(formatUnits(v, dec));
+  return n >= 10000
+    ? n.toLocaleString("en-US", { notation: "compact", maximumFractionDigits: 2 })
+    : n.toLocaleString("en-US", { maximumFractionDigits: frac });
+};
 const STAKE_ABI = [
   { type: "function", name: "stake", stateMutability: "nonpayable", inputs: [{ type: "uint256" }], outputs: [] },
   { type: "function", name: "withdraw", stateMutability: "nonpayable", inputs: [{ type: "uint256" }], outputs: [] },
@@ -25,11 +33,11 @@ export function Stake({ net, walletProvider, address, isConnected, onConnect }: 
   const [staked, setStaked] = useState(0n);
   const [earned, setEarned] = useState(0n);
   const [total, setTotal] = useState(0n);
-  const [status, setStatus] = useState<St>(null);
   const [working, setWorking] = useState(false);
   const [tick, setTick] = useState(0);
   const pc = useMemo(() => createPublicClient({ chain: chainById(net.chainId), transport: http(net.rpcUrl) }), [net]);
   const staking = net.swoodStaking;
+  const setStatus = (s: St) => { if (s) toast({ id: "stake", kind: s.kind === "err" ? "error" : s.kind, msg: s.msg, hash: s.hash, explorer: net.explorer }); else dismiss("stake"); };
 
   useEffect(() => {
     if (!staking) return;
@@ -55,6 +63,7 @@ export function Stake({ net, walletProvider, address, isConnected, onConnect }: 
   useEffect(() => { const id = setInterval(() => setTick((t) => t + 1), 12000); return () => clearInterval(id); }, []);
 
   const amount = useMemo(() => { try { return parseUnits(amt || "0", 18); } catch { return 0n; } }, [amt]);
+  const sharePct = total > 0n ? (Number(staked) / Number(total)) * 100 : 0;
   const wc = () => createWalletClient({ account: address as Address, chain: chainById(net.chainId), transport: custom(walletProvider) });
 
   async function run(fn: () => Promise<`0x${string}`>, label: string) {
@@ -65,7 +74,7 @@ export function Stake({ net, walletProvider, address, isConnected, onConnect }: 
       setStatus({ kind: "busy", msg: `${label}…` });
       const h = await fn();
       await pc.waitForTransactionReceipt({ hash: h });
-      setStatus({ kind: "ok", msg: `${label} — done. tx ${h.slice(0, 10)}…` });
+      setStatus({ kind: "ok", msg: `${label} — done.`, hash: h });
       setTick((t) => t + 1);
     } catch (e: any) {
       setStatus({ kind: "err", msg: e?.shortMessage ?? e?.message ?? String(e) });
@@ -87,12 +96,24 @@ export function Stake({ net, walletProvider, address, isConnected, onConnect }: 
           <h2 style={{ fontFamily: "var(--display)", fontSize: 26, margin: 0 }}>Stake $SWOOD</h2>
           <p className="muted mono-sm" style={{ margin: "4px 0 0" }}>Earn a share of protocol swap-fee revenue, paid in USDG.</p>
         </div>
-        <span className="muted mono-sm">{trim(formatUnits(total, 18), 0)} staked</span>
+        <span className="muted mono-sm">{fmtCompact(total, 18)} staked</span>
       </div>
 
       <div className="desk-one">
         <section className="card">
           <div className="public-note">Swap fees on the public aggregator flow to the treasury and are streamed to stakers here. Stake $SWOOD → claim USDG. Public, non-shielded.</div>
+
+          <div className="stat-tiles">
+            <div className="stat-tile"><b>{fmtCompact(total, 18)}</b><span>Total $SWOOD staked</span></div>
+            <div className="stat-tile"><b>{isConnected ? fmtCompact(staked, 18) : "—"}</b><span>Your staked</span></div>
+            <div className="stat-tile"><b className="lime">{isConnected ? fmtCompact(earned, 6, 4) : "—"}</b><span>Claimable USDG</span></div>
+            <div className="stat-tile"><b>{sharePct >= 0.01 || sharePct === 0 ? sharePct.toFixed(2) : sharePct.toFixed(4)}%</b><span>Your share</span></div>
+          </div>
+          {isConnected && staked > 0n && (
+            <div className="share-bar" title={`You hold ${sharePct.toFixed(4)}% of the pool`}>
+              <div className="share-fill" style={{ width: `${Math.min(100, Math.max(sharePct, 1.5))}%` }} />
+            </div>
+          )}
 
           <div className="asset-panel">
             <div className="ap-top">
@@ -120,8 +141,6 @@ export function Stake({ net, walletProvider, address, isConnected, onConnect }: 
               <div className="sm-row dim"><span>Your share</span><span>{total > 0n ? ((Number(staked) / Number(total)) * 100).toFixed(2) : "0.00"}%</span></div>
             </div>
           )}
-
-          {status && (<div className={`status ${status.kind}`}>{status.kind === "busy" && <span className="spin" />}{status.msg}</div>)}
         </section>
       </div>
     </div>

@@ -9,6 +9,8 @@ import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { chainById, ERC20_ABI } from "@sherwood/client";
 import type { NetworkConfig, TokenInfo } from "./config";
 import { relayChains, relayQuote, relayStatus, type RelayChain, type RelayQuote, type RelayTx } from "./relay";
+import { TokenPicker, TokenAvatar } from "./TokenUI";
+import { toast, dismiss } from "./Toast";
 
 type St = { kind: "ok" | "err" | "busy"; msg: string } | null;
 type Dir = "out" | "in";
@@ -22,6 +24,45 @@ const relayCurrency = (t: TokenInfo) => (t.native ? NATIVE : t.address);
 const WETH_ABI = [{ type: "function", name: "withdraw", stateMutability: "nonpayable", inputs: [{ type: "uint256" }], outputs: [] }] as const;
 const TRANSFER_ABI = [{ type: "function", name: "transfer", stateMutability: "nonpayable", inputs: [{ type: "address" }, { type: "uint256" }], outputs: [{ type: "bool" }] }] as const;
 type PendingEph = { pk: `0x${string}`; address: string; token: TokenInfo };
+
+/** Custom dark-theme dropdown for the destination/source chain — matches TokenPicker instead of
+ *  the OS-blue native <select>. Button opens a styled menu of chains (logo + name), Esc/outside close. */
+function ChainDropdown({ chains, value, onChange, placeholder }: {
+  chains: RelayChain[]; value: number; onChange: (id: number) => void; placeholder?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement | null>(null);
+  const sorted = useMemo(() => chains.slice().sort((a, b) => a.displayName.localeCompare(b.displayName)), [chains]);
+  const cur = chains.find((c) => c.id === value);
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    const onClick = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("mousedown", onClick);
+    return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("mousedown", onClick); };
+  }, [open]);
+  return (
+    <div className="chain-select" ref={ref}>
+      <button type="button" className="cs-btn" aria-haspopup="listbox" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+        {cur ? <><TokenAvatar sym={cur.currencySymbol} logo={cur.logo} size={20} /><span className="cs-name">{cur.displayName}</span></> : <span className="cs-name muted">{placeholder ?? "Select"}</span>}
+        <svg className="tok-chevron" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
+      </button>
+      {open && (
+        <div className="cs-menu" role="listbox">
+          {sorted.map((c) => (
+            <button key={c.id} type="button" role="option" aria-selected={c.id === value} className={`cs-item ${c.id === value ? "sel" : ""}`} onClick={() => { onChange(c.id); setOpen(false); }}>
+              <TokenAvatar sym={c.currencySymbol} logo={c.logo} size={20} />
+              <span className="cs-name">{c.displayName}</span>
+              {c.id === value && <span className="cs-check" aria-hidden>✓</span>}
+            </button>
+          ))}
+          {sorted.length === 0 && <div className="tp-empty">Loading chains…</div>}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function Bridge({ net, walletProvider, address, isConnected, onConnect, tokens, shielded, unshieldToken, shieldToken }: {
   net: NetworkConfig; walletProvider: any; address?: string; isConnected: boolean; onConnect: () => void;
@@ -37,11 +78,11 @@ export function Bridge({ net, walletProvider, address, isConnected, onConnect, t
   const [dest, setDest] = useState("");
   const [q, setQ] = useState<RelayQuote | null>(null);
   const [quoting, setQuoting] = useState(false);
-  const [status, setStatus] = useState<St>(null);
   const [working, setWorking] = useState(false);
   const [maxPriv, setMaxPriv] = useState(true);
   const [pendingEph, setPendingEph] = useState<PendingEph | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const setStatus = (s: St) => { if (s) toast({ id: "bridge", kind: s.kind === "err" ? "error" : s.kind, msg: s.msg, explorer: net.explorer }); else dismiss("bridge"); };
 
   // Recover any funds stranded at a temporary bridge address from an interrupted flow.
   useEffect(() => { try { const s = localStorage.getItem("sw-bridge-eph"); if (s) setPendingEph(JSON.parse(s)); } catch { /* ignore */ } }, []);
@@ -284,23 +325,22 @@ export function Bridge({ net, walletProvider, address, isConnected, onConnect, t
             </div>
             <div className="ap-main">
               <input className="ap-amount" inputMode="decimal" placeholder="0.0" value={amt} onChange={(e) => setAmt(e.target.value)} />
-              <label className="token-pill">
-                {token.logo && <img className="tok-img" src={token.logo} width={26} height={26} alt={sym} />}
-                <select value={sym} onChange={(e) => setSym(e.target.value)} aria-label="Token" disabled={dir === "in"}>
-                  {(dir === "in" ? tokens.filter((t) => t.symbol === "ETH") : tokens).map((t) => <option key={t.symbol} value={t.symbol}>{t.symbol}</option>)}
-                </select>
-                <svg className="tok-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
-              </label>
+              {/* Bridge-in is locked to ETH (only Relay-supported native in) — show a static pill;
+                  bridge-out reuses the app's searchable TokenPicker over the small ETH/USDG set. */}
+              {dir === "in" ? (
+                <span className="token-pill" style={{ cursor: "default" }}>
+                  <TokenAvatar sym={token.symbol} logo={token.logo} size={26} />
+                  <span style={{ fontWeight: 600, fontSize: 15 }}>{token.symbol}</span>
+                </span>
+              ) : (
+                <TokenPicker tokens={tokens} value={token} onChange={(t) => setSym(t.symbol)} />
+              )}
             </div>
           </div>
 
           <div className="field">
             <label>{dir === "out" ? "Destination chain" : "Source chain"}</label>
-            <select value={otherId} onChange={(e) => setOtherId(Number(e.target.value))}>
-              {chains.slice().sort((a, b) => a.displayName.localeCompare(b.displayName)).map((c) => (
-                <option key={c.id} value={c.id}>{c.displayName}</option>
-              ))}
-            </select>
+            <ChainDropdown chains={chains} value={otherId} onChange={setOtherId} placeholder="Select chain" />
           </div>
 
           {dir === "out" && (
@@ -329,8 +369,6 @@ export function Bridge({ net, walletProvider, address, isConnected, onConnect, t
             <button className="btn block" style={{ marginTop: 14 }} disabled={disabled} onClick={doBridge}>{label}</button>
           )}
           <p className="mono-sm muted" style={{ marginTop: 10, fontSize: 11 }}>Keep a little native gas on each chain. Bridging is powered by Relay; Sherwood adds the privacy on the Robinhood-Chain side.{dir === "in" ? " Bridge-in requires funds + gas on the source chain." : ""}</p>
-
-          {status && (<div className={`status ${status.kind}`}>{status.kind === "busy" && <span className="spin" />}{status.msg}</div>)}
         </section>
       </div>
     </div>
