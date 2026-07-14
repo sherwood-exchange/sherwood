@@ -106,6 +106,9 @@ export const NETWORKS: Record<string, NetworkConfig> = {
       { symbol: "HOODRAT", address: "0x8e62F281f282686fCa6dCB39288069a93fC23F1c", decimals: 18, name: "Hoodrat", logo: "/tokens/hoodrat.jpg" },
       { symbol: "VIRTUAL", address: "0xc6911796042b15d7Fa4F6CDe69e245DdCd3d9c31", decimals: 18, name: "Virtual", logo: "/tokens/virtual.png" },
       { symbol: "VEX", address: "0x8Ff92566f2e81BDd68EDfAa8cde73942A723796b", decimals: 18, name: "Vex", logo: "/tokens/vex.jpg" },
+      // $SWOOD — the protocol token, shieldable/tradable via its SWOOD/VIRTUAL v2 pair
+      // (2-hop SWOOD↔VIRTUAL↔WETH; the pair keeps ~1.3%, handled in routing.ts + SwapExecutor).
+      { symbol: "SWOOD", address: "0xB1cB27F78B7335df8C3d8ebF0881A15BeD6BeB60", decimals: 18, name: "Sherwood", logo: "/tokens/swood.png" },
       // Tokenized stocks — hookless ETH-paired v4 pools (routed through the ETH hub).
       // Deep pools (5% tier): AAPL/TSLA/NVDA/AMD/SPCX/GOOGL. The rest sit on thinner
       // seed pools — fine for small private positions, watch price impact on size.

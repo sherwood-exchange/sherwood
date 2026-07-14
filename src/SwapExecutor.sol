@@ -33,6 +33,7 @@ contract SwapExecutor {
     address internal constant HOODRAT = 0x8e62F281f282686fCa6dCB39288069a93fC23F1c; // v2
     address internal constant VIRTUAL = 0xc6911796042b15d7Fa4F6CDe69e245DdCd3d9c31; // v2
     address internal constant VEX = 0x8Ff92566f2e81BDd68EDfAa8cde73942A723796b; // v2 (via VIRTUAL)
+    address internal constant SWOOD = 0xB1cB27F78B7335df8C3d8ebF0881A15BeD6BeB60; // v2 (via VIRTUAL)
 
     // Tokenized stocks — hookless v4 pools paired with **native ETH** (same working leg as USDG).
     // Each stock's deepest pool sits on its own fee tier, so routes live in a small
@@ -54,6 +55,7 @@ contract SwapExecutor {
     address internal constant PAIR_HOODRAT = 0x451c0DA3b774045a822A129eeDcc5C667DcbfDD8; // WETH/HOODRAT
     address internal constant PAIR_VIRTUAL = 0xd95e8e2Cd04c207625C6F23c974d365a5F3A91D3; // WETH/VIRTUAL
     address internal constant PAIR_VEX = 0x817f16F5D8da83d1B089B082c0172af3923618dA; // VEX/VIRTUAL
+    address internal constant PAIR_SWOOD = 0xabc83c3F04C3dEc51CE32F8aa83bE281E1B27Dad; // SWOOD/VIRTUAL
 
     // Fee tiers
     uint24 internal constant V4_ETH_USDG_FEE = 500;
@@ -116,6 +118,7 @@ contract SwapExecutor {
         if (token == HOODRAT) return _v2(PAIR_HOODRAT, HOODRAT, WETH, amt);
         if (token == VIRTUAL) return _v2(PAIR_VIRTUAL, VIRTUAL, WETH, amt);
         if (token == VEX) return _v2(PAIR_VIRTUAL, VIRTUAL, WETH, _v2(PAIR_VEX, VEX, VIRTUAL, amt));
+        if (token == SWOOD) return _v2(PAIR_VIRTUAL, VIRTUAL, WETH, _v2(PAIR_SWOOD, SWOOD, VIRTUAL, amt, V2_FEE_NUM_SWOOD));
         if (stockRoute[token].ts != 0) return _stockToWeth(token, amt);
         revert UnsupportedToken();
     }
@@ -128,6 +131,7 @@ contract SwapExecutor {
         if (token == HOODRAT) return _v2(PAIR_HOODRAT, WETH, HOODRAT, weth);
         if (token == VIRTUAL) return _v2(PAIR_VIRTUAL, WETH, VIRTUAL, weth);
         if (token == VEX) return _v2(PAIR_VEX, VIRTUAL, VEX, _v2(PAIR_VIRTUAL, WETH, VIRTUAL, weth));
+        if (token == SWOOD) return _v2(PAIR_SWOOD, VIRTUAL, SWOOD, _v2(PAIR_VIRTUAL, WETH, VIRTUAL, weth), V2_FEE_NUM_SWOOD);
         if (stockRoute[token].ts != 0) return _wethToStock(token, weth);
         revert UnsupportedToken();
     }
@@ -151,12 +155,27 @@ contract SwapExecutor {
         out = IERC20(tokenOut).balanceOf(address(this)) - before;
     }
 
-    // ---------- Uniswap v2 (low-level pair swap, 0.3% fee) ----------
-    function _v2(address pair, address tokenIn, address tokenOut, uint256 amtIn) internal returns (uint256 out) {
+    // Default v2 fee numerator (0.3% → keep 997/1000). Some pairs on this chain charge
+    // more: the SWOOD/VIRTUAL pair keeps ~1.3%, so its hop must quote a lower output or
+    // the pair's k-invariant check reverts (UniswapV2: K). We use 985 (1.5%) there — a
+    // small safety margin below the measured ceiling so the swap never reverts; the
+    // caller's minAmountOut still bounds real slippage.
+    uint256 internal constant V2_FEE_NUM = 997;
+    uint256 internal constant V2_FEE_NUM_SWOOD = 985;
+
+    // ---------- Uniswap v2 (low-level pair swap) ----------
+    function _v2(address pair, address tokenIn, address tokenOut, uint256 amtIn) internal returns (uint256) {
+        return _v2(pair, tokenIn, tokenOut, amtIn, V2_FEE_NUM);
+    }
+
+    function _v2(address pair, address tokenIn, address tokenOut, uint256 amtIn, uint256 feeNum)
+        internal
+        returns (uint256 out)
+    {
         (uint112 r0, uint112 r1,) = IUniV2Pair(pair).getReserves();
         bool inIs0 = tokenIn == IUniV2Pair(pair).token0();
         (uint256 rIn, uint256 rOut) = inIs0 ? (uint256(r0), uint256(r1)) : (uint256(r1), uint256(r0));
-        uint256 amtInWithFee = amtIn * 997;
+        uint256 amtInWithFee = amtIn * feeNum;
         uint256 amountOut = (amtInWithFee * rOut) / (rIn * 1000 + amtInWithFee);
 
         uint256 before = IERC20(tokenOut).balanceOf(address(this));

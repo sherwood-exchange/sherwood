@@ -15,9 +15,11 @@ const A = {
   TSLA: "0x322F0929c4625eD5bAd873c95208D54E1c003b2d",
   NVDA: "0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC",
   // (remaining tokenized stocks live in STOCKS below)
+  SWOOD: "0xB1cB27F78B7335df8C3d8ebF0881A15BeD6BeB60",
   PAIR_HOODRAT: "0x451c0DA3b774045a822A129eeDcc5C667DcbfDD8",
   PAIR_VIRTUAL: "0xd95e8e2Cd04c207625C6F23c974d365a5F3A91D3",
   PAIR_VEX: "0x817f16F5D8da83d1B089B082c0172af3923618dA",
+  PAIR_SWOOD: "0xabc83c3F04C3dEc51CE32F8aa83bE281E1B27Dad", // SWOOD/VIRTUAL — non-standard ~1.3% fee
   V3_QUOTER: "0x33e885ed0ec9bf04ecfb19341582aadcb4c8a9e7",
   V4_QUOTER: "0x8dc178efb8111bb0973dd9d722ebeff267c98f94",
   NATIVE: "0x0000000000000000000000000000000000000000",
@@ -36,16 +38,19 @@ const V4_QUOTER_ABI = [
   { type: "function", name: "quoteExactInputSingle", stateMutability: "view", inputs: [{ name: "p", type: "tuple", components: [V4_POOLKEY, { name: "zeroForOne", type: "bool" }, { name: "exactAmount", type: "uint128" }, { name: "hookData", type: "bytes" }] }], outputs: [{ type: "uint256" }, { type: "uint256" }] },
 ] as const;
 
-async function v2Out(pc: PublicClient, pair: string, tokenIn: string, amtIn: bigint): Promise<bigint> {
+// feeNum defaults to 997 (0.3%). The SWOOD/VIRTUAL pair keeps ~1.3%, so its hop uses
+// 985 to mirror SwapExecutor — quoting a lower output that the pair's k-check accepts.
+async function v2Out(pc: PublicClient, pair: string, tokenIn: string, amtIn: bigint, feeNum = 997n): Promise<bigint> {
   const [r, t0] = await Promise.all([
     pc.readContract({ address: pair as Address, abi: V2_ABI, functionName: "getReserves" }) as Promise<readonly [bigint, bigint, number]>,
     pc.readContract({ address: pair as Address, abi: V2_ABI, functionName: "token0" }) as Promise<Address>,
   ]);
   const inIs0 = lc(tokenIn) === lc(t0);
   const [rIn, rOut] = inIs0 ? [r[0], r[1]] : [r[1], r[0]];
-  const fee = amtIn * 997n;
+  const fee = amtIn * feeNum;
   return (fee * rOut) / (rIn * 1000n + fee);
 }
+const SWOOD_FEE = 985n;
 
 async function v3Out(pc: PublicClient, tokenIn: string, tokenOut: string, fee: number, amtIn: bigint): Promise<bigint> {
   const r = (await pc.readContract({ address: A.V3_QUOTER as Address, abi: V3_QUOTER_ABI, functionName: "quoteExactInputSingle", args: [{ tokenIn: tokenIn as Address, tokenOut: tokenOut as Address, amountIn: amtIn, fee, sqrtPriceLimitX96: 0n }] })) as readonly [bigint, ...unknown[]];
@@ -94,6 +99,7 @@ async function toWeth(pc: PublicClient, token: string, amt: bigint): Promise<big
   if (t === lc(A.HOODRAT)) return v2Out(pc, A.PAIR_HOODRAT, token, amt);
   if (t === lc(A.VIRTUAL)) return v2Out(pc, A.PAIR_VIRTUAL, token, amt);
   if (t === lc(A.VEX)) return v2Out(pc, A.PAIR_VIRTUAL, A.VIRTUAL, await v2Out(pc, A.PAIR_VEX, A.VEX, amt));
+  if (t === lc(A.SWOOD)) return v2Out(pc, A.PAIR_VIRTUAL, A.VIRTUAL, await v2Out(pc, A.PAIR_SWOOD, A.SWOOD, amt, SWOOD_FEE)); // SWOOD -> VIRTUAL -> WETH
   if (isStock(t)) return v4Out(pc, token, token, STOCKS[t].fee, STOCKS[t].ts, amt); // stock -> ETH(=WETH)
   throw new Error("unsupported token");
 }
@@ -106,6 +112,7 @@ async function fromWeth(pc: PublicClient, token: string, weth: bigint): Promise<
   if (t === lc(A.HOODRAT)) return v2Out(pc, A.PAIR_HOODRAT, A.WETH, weth);
   if (t === lc(A.VIRTUAL)) return v2Out(pc, A.PAIR_VIRTUAL, A.WETH, weth);
   if (t === lc(A.VEX)) return v2Out(pc, A.PAIR_VEX, A.VIRTUAL, await v2Out(pc, A.PAIR_VIRTUAL, A.WETH, weth));
+  if (t === lc(A.SWOOD)) return v2Out(pc, A.PAIR_SWOOD, A.VIRTUAL, await v2Out(pc, A.PAIR_VIRTUAL, A.WETH, weth), SWOOD_FEE); // WETH -> VIRTUAL -> SWOOD
   if (isStock(t)) return v4Out(pc, A.NATIVE, token, STOCKS[t].fee, STOCKS[t].ts, weth); // ETH(=WETH) -> stock
   throw new Error("unsupported token");
 }
