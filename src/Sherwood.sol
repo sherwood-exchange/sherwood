@@ -130,6 +130,7 @@ contract Sherwood is MerkleTreeWithHistory, ReentrancyGuard, Ownable {
     );
     event AssetSet(address indexed token, bool supported);
     event SwapExecutorSet(address indexed executor);
+    event SwapExecutorAccepted(address indexed executor);
     event AssociationRootUpdated(uint256 newRoot);
     event AspUpdated(address indexed asp);
     event AspProposed(address indexed asp, uint256 effectiveTime);
@@ -158,12 +159,26 @@ contract Sherwood is MerkleTreeWithHistory, ReentrancyGuard, Ownable {
         _setAsset(token, supported);
     }
 
-    /// @notice Owner updates the swap router (e.g. to add new token routes) without a pool
-    ///         redeploy. Custody-free by construction — see `swapExecutor`.
-    function setSwapExecutor(SwapExecutor newExecutor) external onlyOwner {
+    /// @notice Owner proposes a new swap executor; it only takes effect after SWAP_EXECUTOR_TIMELOCK so
+    ///         users can react/exit if the change is malicious. Matches the ASP timelock pattern.
+    SwapExecutor public pendingSwapExecutor;
+    uint256 public pendingSwapExecutorTime;
+    uint256 public constant SWAP_EXECUTOR_TIMELOCK = 2 days;
+
+    function proposeSwapExecutor(SwapExecutor newExecutor) external onlyOwner {
         require(address(newExecutor) != address(0), "executor = zero");
-        swapExecutor = newExecutor;
+        pendingSwapExecutor = newExecutor;
+        pendingSwapExecutorTime = block.timestamp + SWAP_EXECUTOR_TIMELOCK;
         emit SwapExecutorSet(address(newExecutor));
+    }
+
+    /// @notice Owner finalizes a proposed swap executor once the timelock has elapsed.
+    function acceptSwapExecutor() external onlyOwner {
+        require(address(pendingSwapExecutor) != address(0), "no pending executor");
+        require(block.timestamp >= pendingSwapExecutorTime, "executor timelock");
+        swapExecutor = pendingSwapExecutor;
+        pendingSwapExecutor = SwapExecutor(address(0));
+        emit SwapExecutorAccepted(address(swapExecutor));
     }
 
     /// @notice ASP publishes the Merkle root of approved deposit labels. Spends
