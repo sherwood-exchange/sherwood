@@ -650,13 +650,14 @@ html, body, #root { max-width: 100%; }
 
 /* ===== WOODIE — chat copilot ===== */
 .woodie { display: flex; flex-direction: column; position: relative; }
-/* Faint WOODIE pose-sheet backdrop behind the agent — a soft "landing" feel. */
+/* WOODIE pose-sheet as the agent's landing backdrop — page-wide, faded so
+   the trio of characters shows through the empty margins but chat stays legible. */
 .woodie::before {
-  content: ""; position: absolute; inset: 0; z-index: 0; pointer-events: none;
-  background: url(/woodie-poses.png) no-repeat center 6% / min(600px, 96%) auto;
-  opacity: 0.10;
-  -webkit-mask-image: radial-gradient(130% 55% at 50% 22%, #000 30%, transparent 72%);
-  mask-image: radial-gradient(130% 55% at 50% 22%, #000 30%, transparent 72%);
+  content: ""; position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background: url(/woodie-poses.png) no-repeat center 34% / min(1100px, 128%) auto;
+  opacity: 0.20;
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 14%, #000 60%, transparent 92%);
+  mask-image: linear-gradient(to bottom, transparent, #000 14%, #000 60%, transparent 92%);
 }
 .woodie > * { position: relative; z-index: 1; }
 .woodie-log {
