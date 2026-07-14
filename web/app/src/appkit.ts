@@ -4,12 +4,19 @@
 import { createAppKit } from "@reown/appkit/react";
 import { EthersAdapter } from "@reown/appkit-adapter-ethers";
 import type { AppKitNetwork } from "@reown/appkit/networks";
+import { mainnet, base, arbitrum, optimism, polygon } from "@reown/appkit/networks";
 import { robinhoodChain } from "@sherwood/client";
 
 const projectId = "5d96d2d56137d716879b9154fd3252cf";
 
-// Reuse the app's viem chain definition as the AppKit network (Robinhood Chain mainnet).
-const networks = [robinhoodChain] as unknown as [AppKitNetwork, ...AppKitNetwork[]];
+// Robinhood Chain is the home network, but the Private Bridge (Bridge in) needs the wallet
+// to sit on a SOURCE chain (Base, Ethereum, …) to send the Relay deposit. Registering those
+// chains here keeps AppKit from treating them as "unsupported" and blocking with a
+// Switch-Network modal mid-bridge. Robinhood Chain stays the default.
+const networks = [robinhoodChain, base, mainnet, arbitrum, optimism, polygon] as unknown as [
+  AppKitNetwork,
+  ...AppKitNetwork[],
+];
 
 export const appKit = createAppKit({
   adapters: [new EthersAdapter()],
