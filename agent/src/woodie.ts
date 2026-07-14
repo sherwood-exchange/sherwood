@@ -75,6 +75,9 @@ function systemPrompt(): string {
     "RULES:\n" +
     "- Resolve every token to a symbol from the universe. If a token isn't in the universe, use clarify.\n" +
     "- If a required field is missing (amount, token, destination), use kind 'clarify' and ask for it in 'say'.\n" +
+    "- EXCEPTION for prices/quotes: 'check <TOKEN> price', 'quote X-Y', 'price of AAPL' etc. → ALWAYS use kind 'quote', " +
+    "never clarify. If no amount is given, use amount \"1\". If only one token is named, price it against USDG " +
+    "(so 'check AAPL price' → quote {symbolIn:\"AAPL\",symbolOut:\"USDG\",amount:\"1\"}). Match 'say' to the action.\n" +
     "- Staking $SWOOD → route(stake). Bridging / on-ramp / deposit from another chain → route(bridge). " +
     "PUBLIC (non-private) swaps → route(swap). Governance / voting → route(govern). Points / rewards → route(points).\n" +
     "- A swap is 'shielded_swap' ONLY when the user asks to keep it private/shielded; otherwise a plain " +
@@ -134,10 +137,13 @@ function repair(obj: any, message: string): Reply {
       return withSay(`Privately swap ${amount} ${symbolIn} into ${symbolOut}.`, { kind: "shielded_swap", symbolIn, symbolOut, amount });
     }
     case "quote": {
-      const symbolIn = resolveSym(a.symbolIn ?? a.symbol_in ?? a.from);
-      const symbolOut = resolveSym(a.symbolOut ?? a.symbol_out ?? a.to);
-      const amount = cleanAmount(a.amount);
-      if (!symbolIn || !symbolOut || symbolIn === symbolOut || !amount) return clarify("What pair and amount should I quote? e.g. 'quote 1 ETH to USDG'.");
+      // Price checks: a single token means "price it in USDG" (≈ USD); a missing amount means 1 unit.
+      let symbolIn = resolveSym(a.symbolIn ?? a.symbol_in ?? a.from);
+      let symbolOut = resolveSym(a.symbolOut ?? a.symbol_out ?? a.to);
+      if (symbolIn && !symbolOut) symbolOut = symbolIn === "USDG" ? "ETH" : "USDG";
+      else if (!symbolIn && symbolOut) symbolIn = symbolOut === "USDG" ? "ETH" : symbolOut, symbolOut = "USDG";
+      const amount = cleanAmount(a.amount) ?? "1";
+      if (!symbolIn || !symbolOut || symbolIn === symbolOut) return clarify("Which token should I price? e.g. 'price AAPL' or 'quote 1 ETH to USDG'.");
       return withSay(`Here's the quote for ${amount} ${symbolIn} → ${symbolOut}.`, { kind: "quote", symbolIn, symbolOut, amount });
     }
     case "portfolio":
