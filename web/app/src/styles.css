@@ -187,6 +187,27 @@ input:focus, select:focus { outline: none; border-color: var(--lime); }
 
 /* ---------- holdings (portfolio card) ---------- */
 .nav-wallet { display: flex; align-items: center; gap: 10px; }
+
+/* Header wallet menu — one pill that expands into address/value/actions */
+.wallet-menu { position: relative; }
+.wallet-pill { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; background: transparent; border: 1px solid rgba(204, 255, 0, 0.4); color: var(--lime); transition: border-color 150ms, background 150ms; }
+.wallet-pill:hover, .wallet-pill.open { background: rgba(204, 255, 0, 0.07); border-color: rgba(204, 255, 0, 0.7); }
+.wallet-pill .wm-caret { font-size: 9px; opacity: 0.7; transition: transform 150ms; }
+.wallet-pill.open .wm-caret { transform: rotate(180deg); }
+.wallet-pop { position: absolute; top: calc(100% + 8px); right: 0; z-index: 60; width: 260px; padding: 14px; background: var(--panel, #0e1310); border: 1px solid var(--line-2); border-radius: 12px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55); display: flex; flex-direction: column; gap: 12px; animation: wm-in 150ms ease; }
+@keyframes wm-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .wallet-pop { animation: none; } }
+.wm-addr-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.wm-addr { color: var(--moon); letter-spacing: 0.02em; }
+.btn.xs { font-size: 11px; padding: 3px 9px; }
+.wm-value { display: flex; align-items: baseline; justify-content: space-between; padding-top: 10px; border-top: 1px solid var(--line); }
+.wm-value-label { font-size: 11px; color: var(--moon-dim); text-transform: uppercase; letter-spacing: 0.06em; }
+.wm-value-total { font-family: var(--display); font-size: 22px; color: var(--moon); }
+.wm-split { display: flex; justify-content: space-between; gap: 10px; font-size: 11px; color: var(--moon-dim); }
+.wm-split .pf-dot { margin-right: 5px; }
+.wm-actions { display: flex; gap: 8px; padding-top: 10px; border-top: 1px solid var(--line); }
+.wm-actions .btn { flex: 1; text-align: center; }
+.wm-actions .wm-disc:hover { border-color: rgba(255, 90, 90, 0.6); color: #ff7a7a; }
 .holdings-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .holdings-head h2 { margin: 0; }
 .holdings { list-style: none; padding: 0; margin: 10px 0 0; }

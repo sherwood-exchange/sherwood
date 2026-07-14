@@ -359,10 +359,7 @@ export default function App() {
         }}
         right={
           conn ? (
-            <span className="nav-wallet">
-              <span className="pill live">{conn.address.slice(0, 6)}…{conn.address.slice(-4)}</span>
-              <button className="btn ghost sm" onClick={doDisconnect}>Disconnect</button>
-            </span>
+            <WalletMenu net={net} conn={conn} shielded={shielded} clear={clear} onDisconnect={doDisconnect} />
           ) : (
             <button className="btn sm" onClick={doConnect} disabled={busy}>
               Connect
@@ -496,6 +493,84 @@ export default function App() {
 }
 
 const USDG_ADDR = "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168";
+
+/** Header wallet control: one pill showing the connected address that expands into a menu
+ *  (full address + copy, total value in $, Portfolio link, Disconnect). Replaces the separate
+ *  address-pill + Disconnect-button pair. */
+function WalletMenu({ net, conn, shielded, clear, onDisconnect }: {
+  net: NetworkConfig; conn: Connection; shielded: Record<string, bigint>; clear: Record<string, bigint>; onDisconnect: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [prices, setPrices] = useState<Record<string, number>>({});
+  const ref = useRef<HTMLDivElement>(null);
+  const addr = conn.address;
+
+  // Estimated USD price per token: quote 1 token → USDG (USDG ≈ $1).
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const out: Record<string, number> = {};
+      for (const t of net.tokens) {
+        if (t.halted) continue;
+        if (t.address.toLowerCase() === USDG_ADDR.toLowerCase()) { out[t.symbol] = 1; continue; }
+        try {
+          const usdg = await quoteRoute(conn.publicClient as any, t.address, USDG_ADDR as Address, parseUnits("1", t.decimals));
+          if (usdg != null && usdg > 0n) out[t.symbol] = Number(usdg) / 1e6;
+        } catch { /* skip */ }
+      }
+      if (alive) setPrices(out);
+    })();
+    return () => { alive = false; };
+  }, [conn, net]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("mousedown", onDoc); document.removeEventListener("keydown", onKey); };
+  }, [open]);
+
+  const usdOf = (sym: string, amount: bigint, decimals: number) => { const p = prices[sym]; return p == null ? 0 : p * Number(formatUnits(amount, decimals)); };
+  const uniq = net.tokens.filter((t, i) => net.tokens.findIndex((x) => x.address === t.address) === i);
+  const totalSh = uniq.reduce((s, t) => (t.halted ? s : s + usdOf(t.symbol, shielded[t.symbol] ?? 0n, t.decimals)), 0);
+  const totalCl = net.tokens.reduce((s, t) => (t.halted ? s : s + usdOf(t.symbol, clear[t.symbol] ?? 0n, t.decimals)), 0);
+  const total = totalSh + totalCl;
+
+  const copy = async () => { try { await navigator.clipboard.writeText(addr); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* clipboard blocked */ } };
+
+  return (
+    <div className="wallet-menu" ref={ref}>
+      <button className={`pill wallet-pill${open ? " open" : ""}`} onClick={() => setOpen((o) => !o)} aria-expanded={open}>
+        <em className="pf-dot wallet" aria-hidden />
+        <span className="mono-sm">{addr.slice(0, 6)}…{addr.slice(-4)}</span>
+        <span className="wm-caret" aria-hidden>▾</span>
+      </button>
+      {open && (
+        <div className="wallet-pop" role="menu">
+          <div className="wm-addr-row">
+            <span className="wm-addr mono-sm">{addr.slice(0, 12)}…{addr.slice(-8)}</span>
+            <button className="btn ghost xs" onClick={copy}>{copied ? "Copied ✓" : "Copy"}</button>
+          </div>
+          <div className="wm-value">
+            <span className="wm-value-label">Wallet value</span>
+            <span className="wm-value-total">{fmtUsd(total)}</span>
+          </div>
+          <div className="wm-split">
+            <span><em className="pf-dot shielded" aria-hidden />Shielded {fmtUsd(totalSh)}</span>
+            <span><em className="pf-dot wallet" aria-hidden />Wallet {fmtUsd(totalCl)}</span>
+          </div>
+          <div className="wm-actions">
+            <a className="btn ghost sm" href="#/portfolio" onClick={() => setOpen(false)}>Portfolio →</a>
+            <button className="btn ghost sm wm-disc" onClick={() => { setOpen(false); onDisconnect(); }}>Disconnect</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function PortfolioPage({ net, conn, shielded, clear, noteCount, myAddress, copied, onCopy, onConnect, onRefresh, busy, relayer }: {
   net: NetworkConfig; conn: Connection | null; shielded: Record<string, bigint>; clear: Record<string, bigint>;
