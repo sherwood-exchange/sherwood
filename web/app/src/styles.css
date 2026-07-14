@@ -649,7 +649,7 @@ html, body, #root { max-width: 100%; }
 .agent-tag { margin: 4px 0 0; }
 
 /* ===== WOODIE — chat copilot ===== */
-.woodie { display: flex; flex-direction: column; }
+.woodie { display: flex; flex-direction: column; position: relative; z-index: 1; }
 /* Wide WOODIE forest as a full-cover landing backdrop (a root-level fixed layer,
    above the base .bg, below all page content) with a dark overlay for legibility. */
 .woodie-backdrop {
