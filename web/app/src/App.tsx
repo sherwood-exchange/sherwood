@@ -15,7 +15,7 @@ import { PublicSwap } from "./PublicSwap";
 import { Bridge } from "./Bridge";
 import { Stake } from "./Stake";
 import { Govern } from "./Govern";
-import { Plan } from "./Plan";
+import { Woodie } from "./Woodie";
 import { RouteChips, TokenAvatar, TokenPicker } from "./TokenUI";
 import { ToastHost, toast, dismiss } from "./Toast";
 
@@ -381,7 +381,13 @@ export default function App() {
       ) : route === "stake" ? (
         <Stake net={net} walletProvider={walletProvider} address={akAddress} isConnected={isConnected} onConnect={doConnect} />
       ) : route === "plan" ? (
-        <Plan net={net} walletProvider={walletProvider} address={akAddress} isConnected={isConnected} onConnect={doConnect} />
+        <Woodie
+          net={net} walletProvider={walletProvider} address={akAddress} isConnected={isConnected} onConnect={doConnect}
+          shielded={shielded} clear={clear}
+          shieldToken={shieldToken} sendMulti={sendMulti} swapMulti={swapMulti} withdrawMulti={withdrawMulti}
+          tokenBySymbol={tokenBySymbol}
+          parseShieldedAddress={(s) => parseAddress(JSON.parse(s))}
+        />
       ) : route === "govern" ? (
         <Govern net={net} walletProvider={walletProvider} address={akAddress} isConnected={isConnected} onConnect={doConnect} />
       ) : route === "points" ? (

@@ -48,6 +48,7 @@ deploy/testnet.json
 
 # marketing material — not part of the public repo
 brand/announce/
+brand/*.mp4
 
 # os
 .DS_Store

@@ -1,17 +1,18 @@
-// plan-server — tiny HTTP surface for the investing planner, so the web page can call it with the
-// LLM key kept server-side. Node http only, no express.
+// plan-server — tiny HTTP surface for WOODIE, Sherwood's on-chain copilot, so the web page can
+// call it with the LLM key kept server-side. Node http only, no express.
+// (Filename kept as plan-server.ts because the VPS Docker CMD runs `src/plan-server.ts`.)
 //
-//   POST /plan      {goal, budgetUsd, riskTier}  -> Plan JSON
-//   GET  /universe                               -> getUniverse() (live liquidity tiers)
-//   GET  /health                                 -> {ok:true}
+//   POST /chat      {message[, shielded]}  -> Reply { say, action? }
+//   GET  /universe                         -> getUniverse() (live liquidity tiers)
+//   GET  /health                           -> {ok:true}
 //
-//   npm run plan:serve                 # listens on PLAN_PORT (default 8795)
+//   npm run woodie:serve               # listens on PLAN_PORT (default 8795)
 import "dotenv/config";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { buildPlan, getUniverse, type RiskTier } from "./planner.js";
+import { getUniverse } from "./planner.js";
+import { chat } from "./woodie.js";
 
 const PORT = Number(process.env.PLAN_PORT) || 8795;
-const RISKS: RiskTier[] = ["cautious", "balanced", "bold"];
 const ALLOW_ORIGIN = "https://sherwood.spot";
 
 function cors(req: IncomingMessage, res: ServerResponse) {
@@ -38,19 +39,17 @@ const server = createServer(async (req, res) => {
   try {
     if (req.method === "GET" && url === "/health") return send(res, 200, { ok: true });
     if (req.method === "GET" && url === "/universe") return send(res, 200, await getUniverse());
-    if (req.method === "POST" && url === "/plan") {
+    if (req.method === "POST" && url === "/chat") {
       const b = await readBody(req);
-      const goal = String(b.goal ?? "").trim();
-      const budgetUsd = Math.max(1, Math.round(Number(b.budgetUsd) || 0));
-      const riskTier = (RISKS.includes(String(b.riskTier).toLowerCase() as RiskTier) ? String(b.riskTier).toLowerCase() : "balanced") as RiskTier;
-      if (!goal) return send(res, 400, { error: "goal is required" });
-      if (!budgetUsd) return send(res, 400, { error: "budgetUsd is required" });
-      return send(res, 200, await buildPlan({ goal, budgetUsd, riskTier }));
+      const message = String(b.message ?? "").trim();
+      if (!message) return send(res, 400, { error: "message is required" });
+      const shielded = Array.isArray(b.shielded) ? b.shielded.map(String) : undefined;
+      return send(res, 200, await chat(message, shielded ? { shielded } : undefined));
     }
-    return send(res, 404, { error: "not found", routes: ["GET /health", "GET /universe", "POST /plan"] });
+    return send(res, 404, { error: "not found", routes: ["GET /health", "GET /universe", "POST /chat"] });
   } catch (e: any) {
     return send(res, 500, { error: e?.message ?? String(e) });
   }
 });
 
-server.listen(PORT, () => console.log(`🗺  Sherwood investing planner on http://localhost:${PORT}  (POST /plan · GET /universe · GET /health)`));
+server.listen(PORT, () => console.log(`🌲 WOODIE — Sherwood copilot on http://localhost:${PORT}  (POST /chat · GET /universe · GET /health)`));
