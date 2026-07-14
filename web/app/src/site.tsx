@@ -13,22 +13,24 @@ export function XIcon({ size = 16 }: { size?: number }) {
 }
 
 /** Ambient animated background + optional hero video loop (public/hero.mp4). */
-export function Background() {
+export function Background({ still }: { still?: boolean } = {}) {
   return (
-    <div className="bg" aria-hidden>
-      <video
-        autoPlay
-        loop
-        muted
-        playsInline
-        onLoadedMetadata={(e) => (e.currentTarget.playbackRate = 0.7)}
-        onError={(e) => (e.currentTarget.style.display = "none")}
-      >
-        <source src="/hero.mp4" type="video/mp4" />
-      </video>
-      <div className="glow g1" />
-      <div className="glow g2" />
-      <div className="glow g3" />
+    <div className={"bg" + (still ? " still" : "")} aria-hidden>
+      {!still && (
+        <video
+          autoPlay
+          loop
+          muted
+          playsInline
+          onLoadedMetadata={(e) => (e.currentTarget.playbackRate = 0.7)}
+          onError={(e) => (e.currentTarget.style.display = "none")}
+        >
+          <source src="/hero.mp4" type="video/mp4" />
+        </video>
+      )}
+      {!still && <div className="glow g1" />}
+      {!still && <div className="glow g2" />}
+      {!still && <div className="glow g3" />}
       <div className="grid" />
       <div className="vignette" />
     </div>

@@ -349,7 +349,7 @@ export default function App() {
 
   return (
     <>
-      <Background />
+      <Background still={route === "plan"} />
       <Nav
         net={net}
         inApp={!!conn}
