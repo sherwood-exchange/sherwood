@@ -133,8 +133,9 @@ contract AggRouter is ReentrancyGuard {
         }
         uint256 weth;
         if (s.kind == 1) weth = _v3(tokenIn, WETH, amountIn, s.fee);
-        else if (s.kind == 2) weth = _v2(s.pool, tokenIn, WETH, amountIn);
-        else if (s.kind == 3) weth = _v2(s.pool2, s.via, WETH, _v2(s.pool, tokenIn, s.via, amountIn)); // token -> via -> WETH
+        else if (s.kind == 2) weth = _v2(s.pool, tokenIn, WETH, amountIn, _v2Fee(s.fee));
+        // token -> via -> WETH; s.fee carries the (possibly non-standard) first-hop v2 fee
+        else if (s.kind == 3) weth = _v2(s.pool2, s.via, WETH, _v2(s.pool, tokenIn, s.via, amountIn, _v2Fee(s.fee)));
         else revert BadKind();
         IWETH(WETH).withdraw(weth); // WETH -> ETH
         return weth;
@@ -145,8 +146,9 @@ contract AggRouter is ReentrancyGuard {
         if (s.kind == 0) return _v4(NATIVE, tokenOut, eth, eth, s.fee, s.ts);
         IWETH(WETH).deposit{value: eth}(); // ETH -> WETH
         if (s.kind == 1) return _v3(WETH, tokenOut, eth, s.fee);
-        if (s.kind == 2) return _v2(s.pool, WETH, tokenOut, eth);
-        if (s.kind == 3) return _v2(s.pool, s.via, tokenOut, _v2(s.pool2, WETH, s.via, eth)); // WETH -> via -> token
+        if (s.kind == 2) return _v2(s.pool, WETH, tokenOut, eth, _v2Fee(s.fee));
+        // WETH -> via -> token; s.fee carries the (possibly non-standard) token-hop v2 fee
+        if (s.kind == 3) return _v2(s.pool, s.via, tokenOut, _v2(s.pool2, WETH, s.via, eth), _v2Fee(s.fee));
         revert BadKind();
     }
 
@@ -160,11 +162,23 @@ contract AggRouter is ReentrancyGuard {
         outAmt = IERC20(tout).balanceOf(address(this)) - before;
     }
 
-    function _v2(address pair, address tin, address tout, uint256 amtIn) internal returns (uint256 outAmt) {
+    /// @dev v2 fee numerator: standard 997 (0.3%), overridable via the Spoke's `fee` field
+    ///      for pairs with a non-standard fee (e.g. SWOOD/VIRTUAL keeps ~1.3% → pass 985).
+    ///      Values outside a sane v2 range fall back to 997, so v3-style fees (3000/10000)
+    ///      or 0 never corrupt a v2 hop.
+    function _v2Fee(uint24 f) internal pure returns (uint256) {
+        return (f >= 900 && f <= 1000) ? uint256(f) : 997;
+    }
+
+    function _v2(address pair, address tin, address tout, uint256 amtIn) internal returns (uint256) {
+        return _v2(pair, tin, tout, amtIn, 997);
+    }
+
+    function _v2(address pair, address tin, address tout, uint256 amtIn, uint256 feeNum) internal returns (uint256 outAmt) {
         (uint112 r0, uint112 r1,) = IUniV2Pair(pair).getReserves();
         bool inIs0 = tin == IUniV2Pair(pair).token0();
         (uint256 rIn, uint256 rOut) = inIs0 ? (uint256(r0), uint256(r1)) : (uint256(r1), uint256(r0));
-        uint256 f = amtIn * 997;
+        uint256 f = amtIn * feeNum;
         uint256 amountOut = (f * rOut) / (rIn * 1000 + f);
         uint256 before = IERC20(tout).balanceOf(address(this));
         IERC20(tin).safeTransfer(pair, amtIn);

@@ -51,14 +51,25 @@ async function v3Quote(pc: PublicClient, tin: string, tout: string, fee: number,
     args: [{ tokenIn: tin as Address, tokenOut: tout as Address, amountIn: amt, fee, sqrtPriceLimitX96: 0n }] }) as { result: readonly [bigint, ...unknown[]] };
   return result[0];
 }
-async function v2Quote(pc: PublicClient, pair: string, tin: string, amt: bigint): Promise<bigint> {
+// feeNum defaults to 997 (0.3%); pass a lower value for non-standard pairs (SWOOD/VIRTUAL ~1.3% → 985).
+async function v2Quote(pc: PublicClient, pair: string, tin: string, amt: bigint, feeNum = 997n): Promise<bigint> {
   const [r, t0] = await Promise.all([
     pc.readContract({ address: pair as Address, abi: V2_PAIR_ABI, functionName: "getReserves" }) as Promise<readonly [bigint, bigint, number]>,
     pc.readContract({ address: pair as Address, abi: V2_PAIR_ABI, functionName: "token0" }) as Promise<Address>]);
   const [rIn, rOut] = lc(tin) === lc(t0) ? [r[0], r[1]] : [r[1], r[0]];
-  const f = amt * 997n;
+  const f = amt * feeNum;
   return (f * rOut) / (rIn * 1000n + f);
 }
+
+// VIRTUAL hub for tokens with no direct WETH pair but a token/VIRTUAL v2 pair (e.g. $SWOOD).
+// Routed token -> VIRTUAL -> WETH (kind 3). Spoke.fee carries the first-hop v2 fee numerator
+// (997 unless the pair is non-standard). Add entries here for VIRTUAL-quoted tokens.
+const VIRTUAL = "0xc6911796042b15d7Fa4F6CDe69e245DdCd3d9c31";
+const PAIR_VIRTUAL_WETH = "0xd95e8e2Cd04c207625C6F23c974d365a5F3A91D3"; // VIRTUAL/WETH
+const KIND3: Record<string, { pool: Address; fee: number }> = {
+  // SWOOD via SWOOD/VIRTUAL pair (keeps ~1.3% → fee numerator 985)
+  ["0xb1cb27f78b7335df8c3d8ebf0881a15bed6beb60"]: { pool: "0xabc83c3F04C3dEc51CE32F8aa83bE281E1B27Dad" as Address, fee: 985 },
+};
 
 /** Resolve the deepest way to swap `token` <-> ETH, probing v4/v3/v2 with a reference amount.
  *  Returns null for WETH/native (hub tokens need no spoke). `hint` (fee/ts from the token list)
@@ -79,6 +90,14 @@ export async function resolveSpoke(pc: PublicClient, token: string, decimals: nu
     const pair = (await pc.readContract({ address: V2_FACTORY as Address, abi: V2_FAC_ABI, functionName: "getPair", args: [token as Address, WETH as Address] })) as Address;
     if (lc(pair) !== lc(ZERO)) consider(await v2Quote(pc, pair, token, ref), { kind: 2, pool: pair, fee: 0, ts: 0 });
   } catch { /* */ }
+  // kind 3: token -> VIRTUAL -> WETH, for tokens with no direct WETH pair (e.g. $SWOOD)
+  const k3 = KIND3[lc(token)];
+  if (k3) {
+    try {
+      const out = await v2Quote(pc, PAIR_VIRTUAL_WETH, VIRTUAL, await v2Quote(pc, k3.pool, token, ref, BigInt(k3.fee)));
+      consider(out, { kind: 3, pool: k3.pool, fee: k3.fee, ts: 0, via: VIRTUAL as Address, pool2: PAIR_VIRTUAL_WETH as Address });
+    } catch { /* */ }
+  }
   return best ? best.spoke : null;
 }
 
@@ -87,18 +106,18 @@ async function toEth(pc: PublicClient, t: AggToken, amt: bigint): Promise<bigint
   const s = t.spoke; if (!s) throw new Error("unresolved spoke");
   if (s.kind === 0) return v4Quote(pc, t.address, t.address, s.fee, s.ts, amt);
   if (s.kind === 1) return v3Quote(pc, t.address, WETH, s.fee, amt); // WETH ≈ ETH (unwrap 1:1)
-  if (s.kind === 2) return v2Quote(pc, s.pool, t.address, amt);
-  // kind 3: token -> via -> WETH (two v2 hops)
-  return v2Quote(pc, s.pool2!, s.via!, await v2Quote(pc, s.pool, t.address, amt));
+  if (s.kind === 2) return v2Quote(pc, s.pool, t.address, amt, BigInt(s.fee || 997));
+  // kind 3: token -> via -> WETH (first hop may be non-standard fee, second is standard)
+  return v2Quote(pc, s.pool2!, s.via!, await v2Quote(pc, s.pool, t.address, amt, BigInt(s.fee || 997)));
 }
 async function fromEth(pc: PublicClient, t: AggToken, eth: bigint): Promise<bigint> {
   if (isHub(t.address)) return eth;
   const s = t.spoke; if (!s) throw new Error("unresolved spoke");
   if (s.kind === 0) return v4Quote(pc, NATIVE, t.address, s.fee, s.ts, eth);
   if (s.kind === 1) return v3Quote(pc, WETH, t.address, s.fee, eth);
-  if (s.kind === 2) return v2Quote(pc, s.pool, WETH, eth);
-  // kind 3: WETH -> via -> token
-  return v2Quote(pc, s.pool, s.via!, await v2Quote(pc, s.pool2!, WETH, eth));
+  if (s.kind === 2) return v2Quote(pc, s.pool, WETH, eth, BigInt(s.fee || 997));
+  // kind 3: WETH -> via -> token (second hop into the token may be non-standard fee)
+  return v2Quote(pc, s.pool, s.via!, await v2Quote(pc, s.pool2!, WETH, eth), BigInt(s.fee || 997));
 }
 
 /** Expected output for a public tokenIn -> tokenOut swap through the ETH hub, or null on failure. */

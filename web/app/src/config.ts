@@ -88,7 +88,7 @@ export const NETWORKS: Record<string, NetworkConfig> = {
     explorer: "https://robinhoodchain.blockscout.com",
     quoter: "0x8dc178efb8111bb0973dd9d722ebeff267c98f94", // truthy so the swap form shows live quotes (routing.ts does the multi-DEX quote)
     publicRouter: "0xb40472a8370ac0045b20af398dd8181e320fdaff", // PublicRouter.sol — v4-only public swap (superseded by aggRouter)
-    aggRouter: "0x01bfe0d5d43be24f2edf626bdd2ff41af5dc4e0c", // AggRouter.sol — v2/v3/v4 + 2-hop, $SWOOD-tiered fee
+    aggRouter: "0x0D4C62FC3FB81db8d2eDE03adf41Ac893621912D", // AggRouter.sol — v2/v3/v4 + 2-hop (fee-aware v2), $SWOOD-tiered fee
     swoodStaking: "0x34677e5dd609d79ca2a413c51976154db7c1973f", // SwoodStaking.sol — stake $SWOOD, earn USDG fees
     swoodGovernor: "0x0b6c6f778e7ac3dd576658fbc35a0ac643f79fd7", // SwoodGovernor.sol — $SWOOD signaling governance
 

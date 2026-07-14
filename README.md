@@ -46,7 +46,7 @@ Sherwood is a full-stack exchange for **Robinhood Chain** (Arbitrum Orbit L2) wi
 |---|---|
 | Sherwood shielded pool | `0x6504c957ec52b279667e6836b102a0c2586e919c` |
 | SwapExecutor | `0x77F22F0E67133Dc7468210cEA762D3469455f119` |
-| AggRouter (public aggregator) | `0x01bfe0d5d43be24f2edf626bdd2ff41af5dc4e0c` |
+| AggRouter (public aggregator) | `0x0D4C62FC3FB81db8d2eDE03adf41Ac893621912D` |
 | $SWOOD token | `0xB1cB27F78B7335df8C3d8ebF0881A15BeD6BeB60` |
 | SwoodStaking | `0x34677e5dd609d79ca2a413c51976154db7c1973f` |
 | SwoodGovernor | `0x0b6c6f778e7ac3dd576658fbc35a0ac643f79fd7` |
