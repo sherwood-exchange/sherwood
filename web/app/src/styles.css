@@ -649,22 +649,21 @@ html, body, #root { max-width: 100%; }
 .agent-tag { margin: 4px 0 0; }
 
 /* ===== WOODIE — chat copilot ===== */
-.woodie { display: flex; flex-direction: column; position: relative; }
+.woodie { display: flex; flex-direction: column; position: relative; isolation: isolate; }
 /* WOODIE pose-sheet as the agent's landing backdrop — page-wide, faded so
    the trio of characters shows through the empty margins but chat stays legible. */
 .woodie::before {
-  content: ""; position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
   background:
     linear-gradient(to bottom,
-      rgba(10,14,12,0.97) 0%,
-      rgba(10,14,12,0.9) 30%,
-      rgba(10,14,12,0.55) 52%,
-      rgba(10,14,12,0.12) 74%,
+      rgba(10,14,12,0.94) 0%,
+      rgba(10,14,12,0.78) 26%,
+      rgba(10,14,12,0.4) 48%,
+      rgba(10,14,12,0.08) 72%,
       transparent 88%),
     url(/woodie-bg.png) center top / cover no-repeat;
   opacity: 1;
 }
-.woodie > * { position: relative; z-index: 1; }
 .woodie-log {
   display: flex; flex-direction: column; gap: 14px; padding: 4px 2px 8px;
   max-height: min(58vh, 620px); overflow-y: auto; overflow-x: hidden; scrollbar-width: thin;
