@@ -2,7 +2,7 @@
 // call it with the LLM key kept server-side. Node http only, no express.
 // (Filename kept as plan-server.ts because the VPS Docker CMD runs `src/plan-server.ts`.)
 //
-//   POST /chat      {message[, shielded]}  -> Reply { say, action? }
+//   POST /chat      {message[, shielded, history]}  -> Reply { say, action? }
 //   GET  /universe                         -> getUniverse() (live liquidity tiers)
 //   GET  /health                           -> {ok:true}
 //
@@ -10,7 +10,7 @@
 import "dotenv/config";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { getUniverse } from "./planner.js";
-import { chat } from "./woodie.js";
+import { chat, type ChatTurn } from "./woodie.js";
 
 const PORT = Number(process.env.PLAN_PORT) || 8795;
 const ALLOW_ORIGIN = "https://sherwood.spot";
@@ -44,7 +44,16 @@ const server = createServer(async (req, res) => {
       const message = String(b.message ?? "").trim();
       if (!message) return send(res, 400, { error: "message is required" });
       const shielded = Array.isArray(b.shielded) ? b.shielded.map(String) : undefined;
-      return send(res, 200, await chat(message, shielded ? { shielded } : undefined));
+      // last few chat turns from the web UI so clarify follow-ups and pronouns resolve.
+      const history: ChatTurn[] | undefined = Array.isArray(b.history)
+        ? b.history.slice(-12).flatMap((t: any): ChatTurn[] => {
+            const role = t?.role === "user" ? "user" : t?.role === "woodie" ? "woodie" : null;
+            const text = String(t?.text ?? "").slice(0, 400);
+            if (!role || !text) return [];
+            return [{ role, text, kind: typeof t?.kind === "string" ? t.kind.slice(0, 20) : undefined }];
+          })
+        : undefined;
+      return send(res, 200, await chat(message, shielded || history ? { shielded, history } : undefined));
     }
     return send(res, 404, { error: "not found", routes: ["GET /health", "GET /universe", "POST /chat"] });
   } catch (e: any) {

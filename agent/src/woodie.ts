@@ -20,11 +20,15 @@ export type Action =
   | { kind: "shielded_swap"; symbolIn: string; symbolOut: string; amount: string }
   | { kind: "portfolio" }
   | { kind: "quote"; symbolIn: string; symbolOut: string; amount: string }
+  | { kind: "bridge_quote"; amount: string; chain: string }
+  | { kind: "universe" }
   | { kind: "route"; to: RouteTo; note?: string }
   | { kind: "answer" }
   | { kind: "clarify" };
 export interface Reply { say: string; action?: Action }
-export interface ChatCtx { shielded?: string[] }
+/** One prior chat turn; `kind` is the action kind WOODIE answered with (lets the fallback see clarifies). */
+export interface ChatTurn { role: "user" | "woodie"; text: string; kind?: string }
+export interface ChatCtx { shielded?: string[]; history?: ChatTurn[] }
 
 // ---- the live token universe (symbols only) — ETH, USDG, SWOOD + the 5 curated meme tokens +
 // the 23 tokenized stocks. Mirrors the Sherwood allowlist (web/app/src/config.ts), so WOODIE
@@ -73,6 +77,8 @@ function systemPrompt(): string {
     '  {"kind":"shielded_swap","symbolIn":"ETH","symbolOut":"AAPL","amount":"0.005"} — private swap inside the pool\n' +
     '  {"kind":"portfolio"}                                             — user asks to see their balances\n' +
     '  {"kind":"quote","symbolIn":"ETH","symbolOut":"USDG","amount":"1"} — price a swap without executing\n' +
+    '  {"kind":"bridge_quote","amount":"0.05","chain":"base"}            — price bridging ETH out of Robinhood Chain to another chain (amount is ETH)\n' +
+    '  {"kind":"universe"}                                               — user asks what they can trade/shield here (token list + live liquidity)\n' +
     '  {"kind":"route","to":"stake|bridge|swap|govern|points","note":"why"} — deep-link a page; do NOT execute here\n' +
     '  {"kind":"answer"}                                                — greeting / "what can you do" / how-it-works / explain\n' +
     '  {"kind":"clarify"}                                               — a required detail is missing; ask for it in say\n\n' +
@@ -82,6 +88,12 @@ function systemPrompt(): string {
     "- EXCEPTION for prices/quotes: 'check <TOKEN> price', 'quote X-Y', 'price of AAPL' etc. → ALWAYS use kind 'quote', " +
     "never clarify. If no amount is given, use amount \"1\". If only one token is named, price it against USDG " +
     "(so 'check AAPL price' → quote {symbolIn:\"AAPL\",symbolOut:\"USDG\",amount:\"1\"}). Match 'say' to the action.\n" +
+    "- CONVERSATION: earlier turns may be included. If your previous turn asked a clarifying question, " +
+    "treat the user's new message as the missing detail and emit the now-complete action. Pronouns like " +
+    "'it'/'that one' refer to the token or amount discussed in the previous turns.\n" +
+    "- 'Bridge 0.05 ETH to Base', 'what does it cost to move ETH to Arbitrum' → bridge_quote (chain is the " +
+    "destination name; amount defaults to \"0.1\" if unstated). Executing a bridge still goes through route(bridge).\n" +
+    "- 'What can I trade', 'which tokens do you support', 'list the markets' → universe.\n" +
     "- Staking $SWOOD → route(stake). Bridging / on-ramp / deposit from another chain → route(bridge). " +
     "PUBLIC (non-private) swaps → route(swap). Governance / voting → route(govern). Points / rewards → route(points).\n" +
     "- A swap is 'shielded_swap' ONLY when the user asks to keep it private/shielded; otherwise a plain " +
@@ -152,6 +164,14 @@ function repair(obj: any, message: string): Reply {
     }
     case "portfolio":
       return withSay("Here's your portfolio.", { kind: "portfolio" });
+    case "bridge_quote": {
+      const amount = cleanAmount(a.amount) ?? "0.1";
+      const chain = String(a.chain ?? "").trim().slice(0, 40);
+      if (!chain) return clarify("Which chain should I price the bridge to? e.g. Base or Arbitrum.");
+      return withSay(`Here's what bridging ${amount} ETH to ${chain} looks like.`, { kind: "bridge_quote", amount, chain });
+    }
+    case "universe":
+      return withSay("Here's everything tradable on Sherwood right now.", { kind: "universe" });
     case "route": {
       const to = ROUTES.includes(String(a.to).toLowerCase() as RouteTo) ? (String(a.to).toLowerCase() as RouteTo) : null;
       if (!to) return { say: say || "Let me point you to the right page.", action: { kind: "answer" } };
@@ -171,9 +191,9 @@ function repair(obj: any, message: string): Reply {
 // ================================ rule-based fallback (no LLM) ================================
 const HELP =
   "I'm WOODIE — Sherwood's on-chain copilot. I can shield funds into the private pool, send them " +
-  "privately, unshield to a clear address, and run shielded swaps — or point you to Stake, Bridge, " +
-  "Swap, Govern and Points. Try: \"shield 0.01 ETH\", \"privately swap 0.005 ETH into AAPL\", or " +
-  "\"withdraw 50 USDG to 0x…\". I leave no trace, and I never give financial advice.";
+  "privately, unshield to a clear address, run shielded swaps, price anything (\"price of NVDA\"), " +
+  "quote a bridge out (\"bridge 0.05 ETH to Base\"), and list what's tradable (\"what can I trade?\") — " +
+  "or point you to Stake, Bridge, Swap, Govern and Points. I leave no trace, and I never give financial advice.";
 function helpText() { return HELP; }
 
 /** Deterministic intent parser — NO LLM, always returns a valid Reply. */
@@ -188,8 +208,20 @@ export function ruleChat(message: string): Reply {
   if (/^(hi|hey|hello|yo|gm|sup|help|what can you do|who are you|how (does|do)|explain|what is)/.test(m))
     return { say: HELP, action: { kind: "answer" } };
 
+  // universe: "what can I trade" / "which tokens do you support" / "list markets"
+  if (/what can i (trade|buy|swap|shield)|which (tokens|assets|coins|stocks)|list (the )?(tokens|markets|assets)|token list|universe|supported (tokens|assets)/.test(m))
+    return { say: "Here's everything tradable on Sherwood right now.", action: { kind: "universe" } };
+
   // routing intents (checked before generic "swap")
   if (/\bstake|staking|unstake\b/.test(m)) return { say: "Staking lives on the Stake page — I'll take you there.", action: { kind: "route", to: "stake", note: "stake $SWOOD" } };
+  // bridge with an amount + destination → indicative bridge quote ("bridge 0.05 eth to base")
+  {
+    const bq = m.match(/bridge\s+([\d.]+)\s*(?:eth\s+)?(?:to|into|→|->)\s+([a-z][a-z0-9 ]{1,30})/);
+    if (bq && cleanAmount(bq[1])) {
+      const chain = bq[2].trim().replace(/[.?!].*$/, "");
+      return { say: `Here's what bridging ${bq[1]} ETH to ${chain} looks like.`, action: { kind: "bridge_quote", amount: bq[1], chain } };
+    }
+  }
   if (/\bbridge|on.?ramp|deposit from|top ?up\b/.test(m)) return { say: "Bridging & on-ramp are on the Bridge page.", action: { kind: "route", to: "bridge", note: "bridge / on-ramp" } };
   if (/\bgovern|governance|vote|proposal\b/.test(m)) return { say: "Governance is on the Govern page.", action: { kind: "route", to: "govern", note: "governance" } };
   if (/\bpoints|rewards|referral\b/.test(m)) return { say: "Your points live on the Points page.", action: { kind: "route", to: "points", note: "points" } };
@@ -200,7 +232,7 @@ export function ruleChat(message: string): Reply {
   // quote: "quote eth usdg 1" | "quote 1 eth to usdg" | "price 0.5 eth in usdg"
   if (/\b(quote|price)\b/.test(m)) {
     const nums = m.match(/[\d.]+/);
-    const syms = (m.match(/\b[a-z]{1,6}\b/g) ?? []).map(resolveSym).filter(Boolean) as string[];
+    const syms = (m.match(/\b[a-z]{1,10}\b/g) ?? []).map(resolveSym).filter(Boolean) as string[];
     const amount = cleanAmount(nums?.[0]);
     if (syms.length >= 2 && amount && syms[0] !== syms[1])
       return { say: `Quote for ${amount} ${syms[0]} → ${syms[1]}.`, action: { kind: "quote", symbolIn: syms[0], symbolOut: syms[1], amount } };
@@ -210,7 +242,7 @@ export function ruleChat(message: string): Reply {
   // shielded swap: "private swap 0.005 eth to aapl" | "privately swap 0.005 eth into aapl"
   if (/(private|shield).*swap|swap.*(privat|shield)/.test(m) || (/\bswap\b/.test(m) && /(privat|shield)/.test(m))) {
     const amount = cleanAmount((m.match(/[\d.]+/) ?? [])[0]);
-    const pair = m.match(/([a-z]{1,6})\s+(?:to|into|for|→|->)\s+([a-z]{1,6})/);
+    const pair = m.match(/([a-z]{1,10})\s+(?:to|into|for|→|->)\s+([a-z]{1,10})/);
     const symbolIn = resolveSym(pair?.[1]), symbolOut = resolveSym(pair?.[2]);
     if (symbolIn && symbolOut && amount && symbolIn !== symbolOut)
       return { say: `Privately swap ${amount} ${symbolIn} into ${symbolOut}.`, action: { kind: "shielded_swap", symbolIn, symbolOut, amount } };
@@ -222,7 +254,7 @@ export function ruleChat(message: string): Reply {
   // unshield / withdraw: "withdraw 50 usdg to 0x.." (must have a 0x address)
   if (/\b(withdraw|unshield|redeem)\b/.test(m)) {
     const amount = cleanAmount((m.match(/[\d.]+/) ?? [])[0]);
-    const sym = resolveSym((m.match(/\b([a-z]{2,6})\b(?=\s+to\b|\s|$)/g) ?? []).map((x) => x.trim()).find((x) => resolveSym(x)));
+    const sym = resolveSym((m.match(/\b([a-z]{2,10})\b(?=\s+to\b|\s|$)/g) ?? []).map((x) => x.trim()).find((x) => resolveSym(x)));
     const to = (raw.match(/0x[0-9a-fA-F]{40}/) ?? [])[0];
     if (!sym) return clarify("Which token should I unshield?");
     if (!amount) return clarify(`How much ${sym} should I unshield?`);
@@ -233,7 +265,7 @@ export function ruleChat(message: string): Reply {
   // private transfer / send: "send 100 usdg to <shielded addr>"
   if (/\b(send|transfer|pay)\b/.test(m)) {
     const amount = cleanAmount((m.match(/[\d.]+/) ?? [])[0]);
-    const sym = resolveSym((m.match(/\b([a-z]{2,6})\b/g) ?? []).map((x) => x.trim()).find((x) => resolveSym(x)));
+    const sym = resolveSym((m.match(/\b([a-z]{2,10})\b/g) ?? []).map((x) => x.trim()).find((x) => resolveSym(x)));
     const to = raw.split(/\bto\b/i).slice(1).join("to").trim() || undefined;
     if (!sym) return clarify("Which token should I send privately?");
     if (!amount) return clarify(`How much ${sym} should I send?`);
@@ -244,7 +276,7 @@ export function ruleChat(message: string): Reply {
   // shield / deposit: "shield 0.01 eth"
   if (/\b(shield|deposit|hide|private(ize)?|protect)\b/.test(m)) {
     const amount = cleanAmount((m.match(/[\d.]+/) ?? [])[0]);
-    const sym = resolveSym((m.match(/\b([a-z]{2,6})\b/g) ?? []).map((x) => x.trim()).find((x) => resolveSym(x)));
+    const sym = resolveSym((m.match(/\b([a-z]{2,10})\b/g) ?? []).map((x) => x.trim()).find((x) => resolveSym(x)));
     if (!sym) return clarify("Which token should I shield?");
     if (!amount) return clarify(`How much ${sym} should I shield?`);
     return { say: `Shield ${amount} ${sym} into your private pool.`, action: { kind: "shield", symbol: sym, amount } };
@@ -259,14 +291,22 @@ export function ruleChat(message: string): Reply {
 export async function chat(message: string, ctx?: ChatCtx): Promise<Reply> {
   const msg = String(message ?? "").trim();
   if (!msg) return { say: HELP, action: { kind: "answer" } };
+  const history = (ctx?.history ?? []).slice(-10);
   try {
     const ctxLine = ctx?.shielded?.length ? `\n(For reference, the user currently holds shielded: ${ctx.shielded.join(", ")}. Never invent amounts.)` : "";
-    const raw = await callCompute([
-      { role: "system", content: systemPrompt() },
-      { role: "user", content: msg + ctxLine },
-    ]);
-    return repair(parseJson(raw), msg);
+    const msgs: Array<{ role: string; content: string }> = [{ role: "system", content: systemPrompt() }];
+    for (const t of history) msgs.push({ role: t.role === "user" ? "user" : "assistant", content: t.text.slice(0, 400) });
+    msgs.push({ role: "user", content: msg + ctxLine });
+    return repair(parseJson(await callCompute(msgs)), msg);
   } catch {
+    // no LLM: if WOODIE just asked a clarifying question, the new message is probably the missing
+    // detail — re-parse it merged onto the previous user message ("shield eth" + "0.5").
+    const lastWoodie = [...history].reverse().find((t) => t.role === "woodie");
+    const lastUser = [...history].reverse().find((t) => t.role === "user");
+    if (lastWoodie?.kind === "clarify" && lastUser) {
+      const merged = ruleChat(`${lastUser.text} ${msg}`);
+      if (merged.action && merged.action.kind !== "clarify" && merged.action.kind !== "answer") return merged;
+    }
     return ruleChat(msg);
   }
 }

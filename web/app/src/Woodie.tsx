@@ -5,9 +5,10 @@
 // shielded swap — plus quotes, a portfolio view, and deep-links to stake/bridge/swap/govern/points.
 // WOODIE never invents balances and never gives financial advice.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createPublicClient, http, parseUnits, formatUnits, getAddress, type Address } from "viem";
+import { createPublicClient, http, parseUnits, parseEther, formatUnits, getAddress, type Address } from "viem";
 import type { NetworkConfig, TokenInfo } from "./config";
 import { quoteRoute } from "./routing";
+import { relayChains, relayQuote } from "./relay";
 import { TokenAvatar } from "./TokenUI";
 import { toast, dismiss } from "./Toast";
 
@@ -15,6 +16,7 @@ const ERC8004_IDENTITY = "0x8004A169FB4a3325136EB29fA0ceB6D2e539a432";
 const PLAN_BASE = ((import.meta as any).env?.VITE_PLAN_URL as string | undefined) || "https://sherwood.spot/agent";
 // shielded pools are thinner than a single public swap — keep a generous floor on the minOut.
 const SLIP_BPS = 300n; // 3%
+const RH_CHAIN_ID = 4663; // Robinhood Chain — the only origin WOODIE bridges out of
 
 // ---- shared action contract (mirrors agent/src/woodie.ts) ----
 type RouteTo = "stake" | "bridge" | "swap" | "govern" | "points";
@@ -25,6 +27,8 @@ type Action =
   | { kind: "shielded_swap"; symbolIn: string; symbolOut: string; amount: string }
   | { kind: "portfolio" }
   | { kind: "quote"; symbolIn: string; symbolOut: string; amount: string }
+  | { kind: "bridge_quote"; amount: string; chain: string }
+  | { kind: "universe" }
   | { kind: "route"; to: RouteTo; note?: string }
   | { kind: "answer" }
   | { kind: "clarify" };
@@ -47,7 +51,7 @@ const readableErr = (e: any): string => {
   return m.length > 160 ? m.slice(0, 160) + "…" : m;
 };
 
-const EXAMPLES = ["Shield 0.01 ETH", "Private swap 0.005 ETH → AAPL", "Withdraw 50 USDG to 0x…", "My portfolio"];
+const EXAMPLES = ["Shield 0.01 ETH", "Private swap 0.005 ETH → AAPL", "Price of NVDA", "What can I trade?", "Bridge 0.05 ETH to Base", "My portfolio"];
 const ROUTE_LABEL: Record<RouteTo, string> = { stake: "Stake", bridge: "Bridge", swap: "Swap", govern: "Govern", points: "Points" };
 
 export interface WoodieProps {
@@ -82,9 +86,15 @@ export function Woodie(props: WoodieProps) {
     setMsgs((m) => [...m, { role: "user", text: msg }]);
     setThinking(true);
     try {
+      // recent turns + shielded symbols travel with the message, so WOODIE resolves
+      // clarify follow-ups ("How much ETH?" → "0.5") and knows what the user holds.
+      const history = msgs.slice(-8).map((m) => ({
+        role: m.role, text: m.text, kind: m.role === "woodie" ? m.action?.kind : undefined,
+      }));
+      const shieldedSyms = Object.entries(props.shielded).filter(([, v]) => v > 0n).map(([s]) => s);
       const res = await fetch(`${PLAN_BASE}/chat`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: msg }),
+        body: JSON.stringify({ message: msg, history, shielded: shieldedSyms.length ? shieldedSyms : undefined }),
       });
       if (!res.ok) throw new Error(`WOODIE returned ${res.status}`);
       const r = (await res.json()) as Reply;
@@ -173,6 +183,8 @@ function ActionView({ action, explorer, ...p }: WoodieProps & { action: Action; 
   }
   if (action.kind === "portfolio") return <PortfolioCard net={p.net} shielded={p.shielded} clear={p.clear} />;
   if (action.kind === "quote") return <QuoteCard net={p.net} action={action} tokenBySymbol={p.tokenBySymbol} />;
+  if (action.kind === "bridge_quote") return <BridgeQuoteCard action={action} />;
+  if (action.kind === "universe") return <UniverseCard net={p.net} />;
   if (EXECUTABLE.has(action.kind)) return <ConfirmCard action={action} explorer={explorer} {...p} />;
   return null; // answer / clarify — say bubble is enough
 }
@@ -204,9 +216,12 @@ function PortfolioCard({ net, shielded, clear }: { net: NetworkConfig; shielded:
   );
 }
 
-/** Live quote via quoteRoute (public liquidity, same hub the desk uses). */
+const trimNum = (s: string) => (s.includes(".") ? s.replace(/(\.\d{6})\d+$/, "$1").replace(/\.?0+$/, "") : s);
+
+/** Live quote via quoteRoute (public liquidity, same hub the desk uses) + implied rate and USD value. */
 function QuoteCard({ net, action, tokenBySymbol }: { net: NetworkConfig; action: Extract<Action, { kind: "quote" }>; tokenBySymbol: (s: string) => TokenInfo | undefined }) {
   const [out, setOut] = useState<string | null>(null);
+  const [usd, setUsd] = useState<string | null>(null);
   const [err, setErr] = useState(false);
   const pc = useMemo(() => createPublicClient({ chain: chainOf(net), transport: http(net.rpcUrl) }), [net]);
   useEffect(() => {
@@ -218,17 +233,129 @@ function QuoteCard({ net, action, tokenBySymbol }: { net: NetworkConfig; action:
         const amt = parseUnits(action.amount, tin.decimals);
         const q = await quoteRoute(pc as any, tin.address as Address, tout.address as Address, amt);
         if (!live) return;
-        if (q == null || q <= 0n) setErr(true);
-        else setOut(formatUnits(q, tout.decimals));
+        if (q == null || q <= 0n) { setErr(true); return; }
+        setOut(formatUnits(q, tout.decimals));
+        // best-effort USD: one side is USDG, or value the input through USDG.
+        if (tin.symbol === "USDG") setUsd(Number(action.amount).toFixed(2));
+        else if (tout.symbol === "USDG") setUsd(Number(formatUnits(q, tout.decimals)).toFixed(2));
+        else {
+          const usdg = tokenBySymbol("USDG");
+          if (usdg) {
+            const u = await quoteRoute(pc as any, tin.address as Address, usdg.address as Address, amt);
+            if (live && u && u > 0n) setUsd(Number(formatUnits(u, usdg.decimals)).toFixed(2));
+          }
+        }
       } catch { if (live) setErr(true); }
     })();
     return () => { live = false; };
   }, [pc, action.symbolIn, action.symbolOut, action.amount]);
-  const trim = (s: string) => (s.includes(".") ? s.replace(/(\.\d{6})\d+$/, "$1").replace(/\.?0+$/, "") : s);
+  const rate = out != null && Number(action.amount) > 0 ? Number(out) / Number(action.amount) : null;
   return (
     <div className="woodie-card quote">
-      <span className="wc-pair">{action.amount} {action.symbolIn} <em>→</em> {action.symbolOut}</span>
-      <span className="wc-out">{err ? "no route" : out == null ? "quoting…" : `≈ ${trim(out)} ${action.symbolOut}`}</span>
+      <div className="wc-row">
+        <span className="wc-pair">{action.amount} {action.symbolIn} <em>→</em> {action.symbolOut}</span>
+        <span className="wc-out">{err ? "no route" : out == null ? "quoting…" : `≈ ${trimNum(out)} ${action.symbolOut}`}</span>
+      </div>
+      {!err && out != null && (rate != null || usd != null) && (
+        <div className="wc-sub mono-sm muted">
+          {rate != null && <span>1 {action.symbolIn} ≈ {trimNum(rate.toLocaleString("en-US", { maximumFractionDigits: 6, useGrouping: false }))} {action.symbolOut}</span>}
+          {usd != null && <span>≈ ${usd}</span>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Indicative Relay bridge quote for ETH out of Robinhood Chain (execution stays on the Bridge page). */
+function BridgeQuoteCard({ action }: { action: Extract<Action, { kind: "bridge_quote" }> }) {
+  const [state, setState] = useState<{ label: string; fee?: string; eta?: string; chain?: string } | { err: string } | null>(null);
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      try {
+        const chains = await relayChains();
+        const q = action.chain.trim().toLowerCase();
+        const dest = chains.find((c) => String(c.id) === q || c.name.toLowerCase() === q || c.displayName.toLowerCase() === q)
+          ?? chains.find((c) => c.displayName.toLowerCase().includes(q) || c.name.toLowerCase().includes(q));
+        if (!dest) { if (live) setState({ err: `I don't know a chain called "${action.chain}".` }); return; }
+        const PLACEHOLDER = "0x1111111111111111111111111111111111111111" as const; // indicative only
+        const rq = await relayQuote({
+          user: PLACEHOLDER, recipient: PLACEHOLDER, originChainId: RH_CHAIN_ID, destinationChainId: dest.id,
+          amount: parseEther(action.amount),
+        });
+        if (!live) return;
+        setState({
+          label: `≈ ${trimNum(formatUnits(rq.outAmount, rq.outDecimals))} ${rq.outSymbol}`,
+          fee: rq.feeUsd != null ? `$${rq.feeUsd.toFixed(2)} fee` : undefined,
+          eta: rq.timeEstimateSec != null ? `~${rq.timeEstimateSec}s` : undefined,
+          chain: dest.displayName,
+        });
+      } catch (e: any) { if (live) setState({ err: readableErr(e) }); }
+    })();
+    return () => { live = false; };
+  }, [action.amount, action.chain]);
+  return (
+    <div className="woodie-card quote">
+      <div className="wc-row">
+        <span className="wc-pair">{action.amount} ETH <em>→</em> {("chain" in (state ?? {}) && (state as any).chain) || action.chain}</span>
+        <span className="wc-out">{state == null ? "quoting…" : "err" in state ? "no quote" : state.label}</span>
+      </div>
+      {state != null && ("err" in state ? (
+        <div className="wc-sub mono-sm muted"><span>{state.err}</span></div>
+      ) : (
+        <div className="wc-sub mono-sm muted">
+          {state.fee && <span>{state.fee}</span>}
+          {state.eta && <span>{state.eta}</span>}
+          <a href="#/bridge">Open Bridge to execute ↗</a>
+        </div>
+      ))}
+    </div>
+  );
+}
+type UniverseRow = { symbol: string; name: string; category: string; liquidity: "deep" | "medium" | "thin" };
+/** Everything tradable right now: core tokens from the app allowlist + the tokenized stocks with live liquidity tiers. */
+function UniverseCard({ net }: { net: NetworkConfig }) {
+  const [stocks, setStocks] = useState<UniverseRow[] | null>(null);
+  const [err, setErr] = useState(false);
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      try {
+        const r = await fetch(`${PLAN_BASE}/universe`);
+        if (!r.ok) throw new Error(String(r.status));
+        const j = (await r.json()) as UniverseRow[];
+        if (live) setStocks(Array.isArray(j) ? j : []);
+      } catch { if (live) setErr(true); }
+    })();
+    return () => { live = false; };
+  }, []);
+  const core = useMemo(() => {
+    const seen = new Set<string>();
+    return net.tokens.filter((t) => !seen.has(t.symbol) && seen.add(t.symbol));
+  }, [net]);
+  const stockSyms = useMemo(() => new Set((stocks ?? []).map((s) => s.symbol)), [stocks]);
+  return (
+    <div className="woodie-card">
+      <p className="uv-h mono-sm muted">Tokens — shield, send, swap privately</p>
+      <div className="uv-chips">
+        {core.filter((t) => !stockSyms.has(t.symbol)).map((t) => (
+          <span className="uv-chip" key={t.symbol}><TokenAvatar sym={t.symbol} logo={t.logo} size={16} />{t.symbol}</span>
+        ))}
+      </div>
+      <p className="uv-h mono-sm muted">Tokenized stocks — live pool depth</p>
+      {err ? (
+        <p className="muted mono-sm" style={{ margin: 0 }}>Couldn't load live liquidity right now — the full list is on the Swap page.</p>
+      ) : stocks == null ? (
+        <p className="muted mono-sm" style={{ margin: 0 }}>Checking pool depth…</p>
+      ) : (
+        <div className="uv-chips">
+          {stocks.map((s) => (
+            <span className={`uv-chip liq-${s.liquidity}`} key={s.symbol} title={`${s.name} — ${s.liquidity} liquidity`}>
+              <i className="uv-dot" aria-hidden />{s.symbol}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
