@@ -350,6 +350,7 @@ export default function App() {
   return (
     <>
       <Background still={route === "plan"} />
+      {route === "plan" && <div className="woodie-backdrop" aria-hidden />}
       <Nav
         net={net}
         inApp={!!conn}
