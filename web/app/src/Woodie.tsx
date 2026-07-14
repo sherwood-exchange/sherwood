@@ -8,7 +8,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPublicClient, http, parseUnits, formatUnits, getAddress, type Address } from "viem";
 import type { NetworkConfig, TokenInfo } from "./config";
 import { quoteRoute } from "./routing";
-import { Mark } from "./Mark";
 import { TokenAvatar } from "./TokenUI";
 import { toast, dismiss } from "./Toast";
 
@@ -101,7 +100,7 @@ export function Woodie(props: WoodieProps) {
     <div className="app app-narrow woodie">
       {/* Verified-agent header */}
       <div className="agent-head">
-        <div className="agent-avatar" aria-hidden><Mark size={30} /></div>
+        <div className="agent-avatar" aria-hidden><img src="/woodie.png" alt="" width={44} height={44} /></div>
         <div className="agent-id">
           <div className="agent-name-row">
             <h2 className="agent-name">WOODIE</h2>
@@ -119,7 +118,7 @@ export function Woodie(props: WoodieProps) {
       <div className="woodie-log" ref={scroller}>
         {msgs.map((m, i) => (
           <div key={i} className={`chat-row ${m.role}`}>
-            {m.role === "woodie" && <div className="chat-ava" aria-hidden><Mark size={16} /></div>}
+            {m.role === "woodie" && <div className="chat-ava" aria-hidden><img src="/woodie.png" alt="" width={26} height={26} /></div>}
             <div className="chat-col">
               <div className={`bubble ${m.role}`}>{m.text}</div>
               {m.role === "woodie" && m.action && <ActionView action={m.action} {...props} explorer={explorer} />}
@@ -128,7 +127,7 @@ export function Woodie(props: WoodieProps) {
         ))}
         {thinking && (
           <div className="chat-row woodie">
-            <div className="chat-ava" aria-hidden><Mark size={16} /></div>
+            <div className="chat-ava" aria-hidden><img src="/woodie.png" alt="" width={26} height={26} /></div>
             <div className="chat-col"><div className="bubble woodie typing"><span /><span /><span /></div></div>
           </div>
         )}
