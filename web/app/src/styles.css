@@ -650,6 +650,7 @@ html, body, #root { max-width: 100%; }
 
 /* ===== WOODIE — chat copilot ===== */
 .woodie { display: flex; flex-direction: column; position: relative; z-index: 1; }
+.app.woodie { padding-bottom: 0; } /* the fixed composer dock owns the bottom edge */
 /* Wide WOODIE forest as a full-cover landing backdrop (a root-level fixed layer,
    above the base .bg, below all page content) with a dark overlay for legibility. */
 .woodie-backdrop {
@@ -658,9 +659,11 @@ html, body, #root { max-width: 100%; }
     linear-gradient(rgba(10,14,12,0.58), rgba(10,14,12,0.58)),
     url(/woodie-bg.png) center / cover no-repeat;
 }
+/* the log fills the space between the header and the pinned composer; its big bottom
+   padding lets the last message scroll clear of the fixed dock that overlays it. */
 .woodie-log {
-  display: flex; flex-direction: column; gap: 14px; padding: 4px 2px 8px;
-  max-height: min(58vh, 620px); overflow-y: auto; overflow-x: hidden; scrollbar-width: thin;
+  display: flex; flex-direction: column; gap: 14px; padding: 4px 2px 168px;
+  height: calc(100dvh - 172px); overflow-y: auto; overflow-x: hidden; scrollbar-width: thin;
 }
 .chat-row { display: flex; gap: 9px; align-items: flex-end; max-width: 100%; }
 .chat-row.user { flex-direction: row-reverse; }
@@ -679,8 +682,20 @@ html, body, #root { max-width: 100%; }
 .bubble.typing span:nth-child(3) { animation-delay: 0.36s; }
 @keyframes woodie-blink { 0%, 80%, 100% { opacity: 0.25; } 40% { opacity: 1; } }
 
+/* pinned composer dock (chat-app style): fixed to the viewport bottom, centered on the
+   narrow column, with a fade + blur so messages stay legible as they scroll underneath. */
+.woodie-dock {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
+  display: flex; justify-content: center;
+  padding: 30px clamp(14px, 4vw, 20px) calc(16px + env(safe-area-inset-bottom, 0px));
+  background: linear-gradient(to top, rgba(10,14,12,0.94) 46%, rgba(10,14,12,0.72) 74%, transparent);
+  -webkit-backdrop-filter: blur(5px); backdrop-filter: blur(5px);
+  pointer-events: none; /* clicks fall through the fade to the messages; controls re-enable below */
+}
+.woodie-dock-inner { width: 100%; max-width: 620px; pointer-events: auto; }
+
 /* example chips + composer */
-.woodie-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 10px; }
+.woodie-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 10px; }
 .woodie-chip {
   font-family: var(--mono); font-size: 12.5px; font-weight: 600; color: var(--moon-dim); cursor: pointer;
   background: var(--panel); border: 1px solid var(--line-2); border-radius: 999px; padding: 7px 13px; transition: all 0.15s;
@@ -695,7 +710,7 @@ html, body, #root { max-width: 100%; }
 .woodie-input:focus { outline: none; border-color: rgba(204,255,0,0.5); }
 .woodie-input::placeholder { color: var(--moon-dim); }
 .woodie-send { flex: 0 0 auto; width: 46px; height: 46px; padding: 0; display: grid; place-items: center; border-radius: 14px; }
-.woodie-foot { text-align: center; margin: 12px 0 0; line-height: 1.5; }
+.woodie-foot { text-align: center; margin: 10px 0 0; line-height: 1.5; }
 
 /* route deep-link */
 .woodie-route {

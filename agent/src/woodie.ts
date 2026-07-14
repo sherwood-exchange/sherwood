@@ -26,8 +26,12 @@ export type Action =
 export interface Reply { say: string; action?: Action }
 export interface ChatCtx { shielded?: string[] }
 
-// ---- the live token universe (symbols only) — ETH, USDG, SWOOD + the 23 tokenized stocks ----
-export const TOKENS: string[] = ["ETH", "USDG", "SWOOD", ...UNIVERSE.map((u) => u.symbol)];
+// ---- the live token universe (symbols only) — ETH, USDG, SWOOD + the 5 curated meme tokens +
+// the 23 tokenized stocks. Mirrors the Sherwood allowlist (web/app/src/config.ts), so WOODIE
+// quotes/shields exactly what the pool + aggregator actually support (the raw chain tokenlist has
+// hundreds of ambiguous look-alikes — we deliberately do NOT open the universe to those). ----
+const MEME: string[] = ["CASHCAT", "JUGGERNAUT", "HOODRAT", "VIRTUAL", "VEX"];
+export const TOKENS: string[] = ["ETH", "USDG", "SWOOD", ...MEME, ...UNIVERSE.map((u) => u.symbol)];
 const TOKEN_SET = new Set(TOKENS);
 // a few forgiving aliases so "eth"/"ether"/"usdc"/"apple" resolve to a live symbol.
 const ALIAS: Record<string, string> = {
