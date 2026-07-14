@@ -248,7 +248,6 @@ export function PublicSwap({ net, walletProvider, address, isConnected, onConnec
           <h2 style={{ fontFamily: "var(--display)", fontSize: 26, margin: 0 }}>Swap</h2>
           <p className="muted mono-sm" style={{ margin: "4px 0 0" }}>Public swap across every Robinhood Chain token — not shielded.</p>
         </div>
-        <span className="muted mono-sm">{tokens.length - HUB.length} tokens</span>
       </div>
 
       <div className="desk-one">

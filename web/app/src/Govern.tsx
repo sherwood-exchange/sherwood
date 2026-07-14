@@ -93,7 +93,6 @@ export function Govern({ net, walletProvider, address, isConnected, onConnect }:
           <h2 style={{ fontFamily: "var(--display)", fontSize: 26, margin: 0 }}>Governance</h2>
           <p className="muted mono-sm" style={{ margin: "4px 0 0" }}>$SWOOD-weighted signaling votes on listings + protocol parameters.</p>
         </div>
-        <span className="muted mono-sm">{isConnected ? `${fmtCompact(power)} votes` : ""}</span>
       </div>
 
       <div className="desk-one" style={{ maxWidth: 640 }}>

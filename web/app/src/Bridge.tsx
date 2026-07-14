@@ -295,7 +295,6 @@ export function Bridge({ net, walletProvider, address, isConnected, onConnect, t
           <h2 style={{ fontFamily: "var(--display)", fontSize: 26, margin: 0 }}>Private Bridge</h2>
           <p className="muted mono-sm" style={{ margin: "4px 0 0" }}>Move value in/out of Robinhood Chain — unlinked from your shielded pool.</p>
         </div>
-        <span className="muted mono-sm">via Relay</span>
       </div>
 
       <div className="desk-one">

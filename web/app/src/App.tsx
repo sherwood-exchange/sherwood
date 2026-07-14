@@ -411,7 +411,6 @@ export default function App() {
                 Keys derived from a wallet signature — they never left your browser.
               </p>
             </div>
-            <span className="muted mono-sm">{net.label}</span>
           </div>
 
           {pendingApproval && (

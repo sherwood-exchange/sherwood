@@ -96,7 +96,6 @@ export function Stake({ net, walletProvider, address, isConnected, onConnect }: 
           <h2 style={{ fontFamily: "var(--display)", fontSize: 26, margin: 0 }}>Stake $SWOOD</h2>
           <p className="muted mono-sm" style={{ margin: "4px 0 0" }}>Earn a share of protocol swap-fee revenue, paid in USDG.</p>
         </div>
-        <span className="muted mono-sm">{fmtCompact(total, 18)} staked</span>
       </div>
 
       <div className="desk-one">
