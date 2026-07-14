@@ -649,7 +649,16 @@ html, body, #root { max-width: 100%; }
 .agent-tag { margin: 4px 0 0; }
 
 /* ===== WOODIE — chat copilot ===== */
-.woodie { display: flex; flex-direction: column; }
+.woodie { display: flex; flex-direction: column; position: relative; }
+/* Faint WOODIE pose-sheet backdrop behind the agent — a soft "landing" feel. */
+.woodie::before {
+  content: ""; position: absolute; inset: 0; z-index: 0; pointer-events: none;
+  background: url(/woodie-poses.png) no-repeat center 6% / min(600px, 96%) auto;
+  opacity: 0.10;
+  -webkit-mask-image: radial-gradient(130% 55% at 50% 22%, #000 30%, transparent 72%);
+  mask-image: radial-gradient(130% 55% at 50% 22%, #000 30%, transparent 72%);
+}
+.woodie > * { position: relative; z-index: 1; }
 .woodie-log {
   display: flex; flex-direction: column; gap: 14px; padding: 4px 2px 8px;
   max-height: min(58vh, 620px); overflow-y: auto; overflow-x: hidden; scrollbar-width: thin;
