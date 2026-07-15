@@ -12,6 +12,7 @@ import { quoteRoute } from "./routing";
 import { relayChains, relayQuote } from "./relay";
 import { quotePublic, resolveSpoke, isHub, NATIVE as AGG_NATIVE, type AggToken } from "./aggregator";
 import { AGG_ABI, spokeArg } from "./PublicSwap";
+import { X_ASSETS, ETH_BASE_ID, xchainQuote } from "./xchain";
 import { TokenAvatar } from "./TokenUI";
 import { toast, dismiss } from "./Toast";
 
@@ -33,6 +34,7 @@ type Action =
   | { kind: "portfolio" }
   | { kind: "quote"; symbolIn: string; symbolOut: string; amount: string }
   | { kind: "bridge_quote"; amount: string; chain: string }
+  | { kind: "xchain_quote"; symbol: string; amount: string }
   | { kind: "universe" }
   | { kind: "route"; to: RouteTo; note?: string }
   | { kind: "answer" }
@@ -189,6 +191,7 @@ function ActionView({ action, explorer, ...p }: WoodieProps & { action: Action; 
   if (action.kind === "portfolio") return <PortfolioCard net={p.net} shielded={p.shielded} clear={p.clear} />;
   if (action.kind === "quote") return <QuoteCard net={p.net} action={action} tokenBySymbol={p.tokenBySymbol} />;
   if (action.kind === "bridge_quote") return <BridgeQuoteCard action={action} />;
+  if (action.kind === "xchain_quote") return <XChainQuoteCard net={p.net} action={action} />;
   if (action.kind === "universe") return <UniverseCard net={p.net} />;
   if (EXECUTABLE.has(action.kind)) return <ConfirmCard action={action} explorer={explorer} {...p} />;
   return null; // answer / clarify — say bubble is enough
@@ -317,6 +320,43 @@ function BridgeQuoteCard({ action }: { action: Extract<Action, { kind: "bridge_q
     </div>
   );
 }
+/** Private cross-chain in-route quote (Houdini leg → ETH on Base); execution lives on the Bridge page. */
+function XChainQuoteCard({ net, action }: { net: NetworkConfig; action: Extract<Action, { kind: "xchain_quote" }> }) {
+  const [state, setState] = useState<{ out: string; eta?: number } | { err: string } | null>(null);
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      try {
+        const asset = X_ASSETS.find((a) => a.symbol === action.symbol);
+        if (!asset) { if (live) setState({ err: `I can't route ${action.symbol} yet.` }); return; }
+        const q = await xchainQuote(net, asset.id, ETH_BASE_ID, Number(action.amount));
+        const best = q.private ?? q.standard;
+        if (!live) return;
+        if (!best) { setState({ err: "No private route for that amount right now (try a larger amount)." }); return; }
+        setState({ out: best.amountOut.toFixed(6), eta: best.duration });
+      } catch (e: any) { if (live) setState({ err: readableErr(e) }); }
+    })();
+    return () => { live = false; };
+  }, [action.symbol, action.amount, net]);
+  return (
+    <div className="woodie-card quote">
+      <div className="wc-row">
+        <span className="wc-pair">{action.amount} {action.symbol} <em>→</em> Sherwood</span>
+        <span className="wc-out">{state == null ? "quoting…" : "err" in state ? "no route" : `≈ ${state.out} ETH on Base`}</span>
+      </div>
+      <div className="wc-sub mono-sm muted">
+        {state != null && "err" in state ? <span>{state.err}</span> : (
+          <>
+            <span>private multi-hop CEX route{state && "eta" in state && state.eta ? ` · ~${state.eta} min` : ""}</span>
+            <span>then Relay in + shield</span>
+            <a href="#/bridge">Open Bridge to execute ↗</a>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 type UniverseRow = { symbol: string; name: string; category: string; liquidity: "deep" | "medium" | "thin" };
 /** Everything tradable right now: core tokens from the app allowlist + the tokenized stocks with live liquidity tiers. */
 function UniverseCard({ net }: { net: NetworkConfig }) {

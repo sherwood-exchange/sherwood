@@ -22,6 +22,7 @@ export type Action =
   | { kind: "portfolio" }
   | { kind: "quote"; symbolIn: string; symbolOut: string; amount: string }
   | { kind: "bridge_quote"; amount: string; chain: string }
+  | { kind: "xchain_quote"; symbol: string; amount: string }
   | { kind: "universe" }
   | { kind: "route"; to: RouteTo; note?: string }
   | { kind: "answer" }
@@ -80,6 +81,7 @@ function systemPrompt(): string {
     '  {"kind":"portfolio"}                                             — user asks to see their balances\n' +
     '  {"kind":"quote","symbolIn":"ETH","symbolOut":"USDG","amount":"1"} — price a swap without executing\n' +
     '  {"kind":"bridge_quote","amount":"0.05","chain":"base"}            — price bridging ETH out of Robinhood Chain to another chain (amount is ETH)\n' +
+    '  {"kind":"xchain_quote","symbol":"BTC","amount":"0.01"}            — price bringing an OUTSIDE asset (BTC, XMR, SOL, LTC, DOGE, USDT) into Sherwood via the private cross-chain route\n' +
     '  {"kind":"universe"}                                               — user asks what they can trade/shield here (token list + live liquidity)\n' +
     '  {"kind":"route","to":"stake|bridge|swap|govern|points","note":"why"} — deep-link a page; do NOT execute here\n' +
     '  {"kind":"answer"}                                                — greeting / "what can you do" / how-it-works / explain\n' +
@@ -95,6 +97,9 @@ function systemPrompt(): string {
     "'it'/'that one' refer to the token or amount discussed in the previous turns.\n" +
     "- 'Bridge 0.05 ETH to Base', 'what does it cost to move ETH to Arbitrum' → bridge_quote (chain is the " +
     "destination name; amount defaults to \"0.1\" if unstated). Executing a bridge still goes through route(bridge).\n" +
+    "- 'bring in 0.01 BTC privately', 'on-ramp monero', 'deposit SOL from solana' → xchain_quote with the OUTSIDE " +
+    "symbol (BTC/XMR/SOL/LTC/DOGE/USDT — these live on other chains, NOT in the token universe above). " +
+    "Amount defaults to \"1\" (\"0.01\" for BTC). The Bridge page executes it.\n" +
     "- 'What can I trade', 'which tokens do you support', 'list the markets' → universe.\n" +
     "- Staking $SWOOD → route(stake). Bridging / on-ramp / deposit from another chain → route(bridge). " +
     "PUBLIC (non-private) swaps → route(swap). Governance / voting → route(govern). Points / rewards → route(points).\n" +
@@ -184,6 +189,13 @@ function repair(obj: any, message: string): Reply {
     }
     case "universe":
       return withSay("Here's everything tradable on Sherwood right now.", { kind: "universe" });
+    case "xchain_quote": {
+      const symbol = String(a.symbol ?? "").toUpperCase().replace(/[^A-Z]/g, "").slice(0, 8);
+      const OUTSIDE = new Set(["BTC", "XMR", "SOL", "LTC", "DOGE", "USDT", "USDC", "ETH"]);
+      if (!OUTSIDE.has(symbol)) return clarify("Which outside asset should I price? I can route BTC, XMR, SOL, LTC, DOGE or USDT in privately.");
+      const amount = cleanAmount(a.amount) ?? (symbol === "BTC" ? "0.01" : "1");
+      return withSay(`Here's the private route for ${amount} ${symbol} into Sherwood.`, { kind: "xchain_quote", symbol, amount });
+    }
     case "route": {
       const to = ROUTES.includes(String(a.to).toLowerCase() as RouteTo) ? (String(a.to).toLowerCase() as RouteTo) : null;
       if (!to) return { say: say || "Let me point you to the right page.", action: { kind: "answer" } };
@@ -232,6 +244,15 @@ export function ruleChat(message: string): Reply {
     if (bq && cleanAmount(bq[1])) {
       const chain = bq[2].trim().replace(/[.?!].*$/, "");
       return { say: `Here's what bridging ${bq[1]} ETH to ${chain} looks like.`, action: { kind: "bridge_quote", amount: bq[1], chain } };
+    }
+  }
+  // outside assets in: "bring in 0.01 btc", "on-ramp monero", "deposit sol privately"
+  {
+    const out = m.match(/\b(btc|bitcoin|xmr|monero|sol|solana|ltc|litecoin|doge|dogecoin|usdt|tether)\b/);
+    if (out && /\b(bring|ramp|on.?ramp|deposit|receive|send in|from|into)\b/.test(m)) {
+      const symbol = ({ bitcoin: "BTC", monero: "XMR", solana: "SOL", litecoin: "LTC", dogecoin: "DOGE", tether: "USDT" } as Record<string, string>)[out[1]] ?? out[1].toUpperCase();
+      const amount = cleanAmount((m.match(/[\d.]+/) ?? [])[0]) ?? (symbol === "BTC" ? "0.01" : "1");
+      return { say: `Here's the private route for ${amount} ${symbol} into Sherwood.`, action: { kind: "xchain_quote", symbol, amount } };
     }
   }
   if (/\bbridge|on.?ramp|deposit from|top ?up\b/.test(m)) return { say: "Bridging & on-ramp are on the Bridge page.", action: { kind: "route", to: "bridge", note: "bridge / on-ramp" } };

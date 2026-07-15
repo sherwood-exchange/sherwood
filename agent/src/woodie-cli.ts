@@ -23,6 +23,7 @@ function describe(a: Action): string {
     case "public_swap": return `→ web quotes via the aggregator then AggRouter.swap(${a.symbolIn} → ${a.symbolOut}, ${a.amount}) — PUBLIC, not shielded.`;
     case "quote": return `→ web calls quoteRoute(${a.symbolIn} → ${a.symbolOut}, ${a.amount}) and shows the number.`;
     case "bridge_quote": return `→ web fetches an indicative Relay quote for ${a.amount} ETH → ${a.chain} (fee + ETA card).`;
+    case "xchain_quote": return `→ web quotes the private in-route for ${a.amount} ${a.symbol} (Houdini → ETH on Base → Relay + shield).`;
     case "universe": return "→ web renders the allowlist chips + the 23 stocks with live pool-depth dots.";
     case "portfolio": return "→ web renders your shielded + clear balances.";
     case "route": return `→ web deep-links the ${a.to} page${a.note ? ` (${a.note})` : ""}.`;

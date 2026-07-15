@@ -11,6 +11,7 @@ import type { NetworkConfig, TokenInfo } from "./config";
 import { relayChains, relayQuote, relayStatus, type RelayChain, type RelayQuote, type RelayTx } from "./relay";
 import { TokenPicker, TokenAvatar } from "./TokenUI";
 import { toast, dismiss } from "./Toast";
+import { XChainPanel } from "./XChainPanel";
 
 type St = { kind: "ok" | "err" | "busy"; msg: string } | null;
 type Dir = "out" | "in";
@@ -369,6 +370,7 @@ export function Bridge({ net, walletProvider, address, isConnected, onConnect, t
           )}
           <p className="mono-sm muted" style={{ marginTop: 10, fontSize: 11 }}>Keep a little native gas on each chain. Bridging is powered by Relay; Sherwood adds the privacy on the Robinhood-Chain side.{dir === "in" ? " Bridge-in requires funds + gas on the source chain." : ""}</p>
         </section>
+        <XChainPanel net={net} address={address} isConnected={isConnected} onConnect={onConnect} />
       </div>
     </div>
   );

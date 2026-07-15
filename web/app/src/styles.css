@@ -712,6 +712,34 @@ html, body, #root { max-width: 100%; }
 .woodie-send { flex: 0 0 auto; width: 46px; height: 46px; padding: 0; display: grid; place-items: center; border-radius: 14px; }
 .woodie-foot { text-align: center; margin: 10px 0 0; line-height: 1.5; }
 
+/* ===== Private cross-chain ramp (Bridge page + WOODIE card) ===== */
+.xc { margin-top: 18px; display: flex; flex-direction: column; gap: 12px; }
+.xc-head { display: flex; flex-direction: column; gap: 4px; }
+.xc-title { margin: 0; font-family: var(--display); font-size: 19px; }
+.xc-sub { margin: 0; line-height: 1.5; }
+.xc-form { display: flex; gap: 10px; }
+.xc-select { flex: 1.2; padding: 11px 12px; }
+.xc-amt { flex: 1; padding: 11px 12px; font-variant-numeric: tabular-nums; }
+.xc-payout { width: 100%; padding: 11px 12px; }
+.xc-modes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.xc-mode {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 4px; cursor: pointer; text-align: left;
+  background: var(--covert); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px;
+  color: var(--moon-dim); font-size: 12.5px; font-weight: 600; transition: all 0.15s;
+}
+.xc-mode.sel { border-color: rgba(204,255,0,0.5); color: var(--moon); }
+.xc-mode-out { color: var(--lime); }
+.xc-err { color: var(--danger); margin: 0; }
+.xc-fine { margin: 0; line-height: 1.5; font-size: 11px; }
+.xc-order { display: flex; flex-direction: column; gap: 9px; }
+.xc-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: 13.5px; color: var(--moon-dim); }
+.xc-row b { color: var(--moon); font-variant-numeric: tabular-nums; }
+.xc-row.dim { font-size: 11.5px; }
+.xc-copy { cursor: pointer; background: var(--covert); border: 1px solid var(--line-2); border-radius: 8px; padding: 6px 10px; color: var(--lime); }
+.xc-copy:hover { border-color: var(--lime); }
+.xc-next { margin: 4px 0 0; color: var(--lime); line-height: 1.5; }
+@media (max-width: 560px) { .xc-form { flex-direction: column; } .xc-modes { grid-template-columns: 1fr; } }
+
 /* route deep-link */
 .woodie-route {
   display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--lime);

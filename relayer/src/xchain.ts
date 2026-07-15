@@ -81,7 +81,7 @@ export async function handleXchain(req: IncomingMessage, res: ServerResponse, cl
       if (!auth) { json(res, 503, { error: "houdini not configured" }); return true; }
       const upstreamPath = path === "/xchain/chains" ? "/chains" : "/tokens";
       const pass = new URLSearchParams();
-      for (const k of ["search", "hasCex", "hasDex", "chain", "limit", "offset"]) if (q.get(k) != null) pass.set(k, q.get(k)!);
+      for (const k of ["term", "symbol", "address", "hasCex", "hasDex", "hasSelfPrivate", "chain", "pageSize", "page"]) if (q.get(k) != null) pass.set(k, q.get(k)!);
       await cachedGet(res, `${HOUDINI}${upstreamPath}${pass.size ? `?${pass}` : ""}`,
         { authorization: auth, ...complianceHeaders(req, clientIp) });
       return true;
