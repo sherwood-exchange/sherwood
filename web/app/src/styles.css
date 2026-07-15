@@ -712,6 +712,16 @@ html, body, #root { max-width: 100%; }
 .woodie-send { flex: 0 0 auto; width: 46px; height: 46px; padding: 0; display: grid; place-items: center; border-radius: 14px; }
 .woodie-foot { text-align: center; margin: 10px 0 0; line-height: 1.5; }
 
+/* ===== Pool page (SWOOD/WETH community liquidity) ===== */
+.pool-stats { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px; color: var(--moon-dim); margin-bottom: 6px; }
+.pool-tok { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; color: var(--moon); flex: 0 0 auto; }
+.pool-remove { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
+.pool-pct { display: flex; justify-content: space-between; color: var(--moon-dim); }
+.pool-pct b { color: var(--lime); font-size: 16px; }
+.pool-remove input[type="range"] { width: 100%; accent-color: var(--lime); }
+.pool-recv { text-align: right; }
+.pool-pos { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); color: var(--moon-dim); }
+
 /* ===== Private cross-chain ramp (Bridge page + WOODIE card) ===== */
 .xc { margin-top: 18px; display: flex; flex-direction: column; gap: 12px; }
 .xc-head { display: flex; flex-direction: column; gap: 4px; }

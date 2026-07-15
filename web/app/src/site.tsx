@@ -61,6 +61,7 @@ export function Nav({
             <a className="link" href="#/">Desk</a>
             <a className="link" href="#/woodie">WOODIE</a>
             <a className="link" href="#/swap">Swap</a>
+            <a className="link" href="#/pool">Pool</a>
             <a className="link" href="#/bridge">Bridge</a>
             <a className="link" href="#/stake">Stake</a>
             <a className="link" href="#/govern">Govern</a>
