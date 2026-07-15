@@ -490,6 +490,14 @@ export default function App() {
             )}
           </section>
 
+          {/* the Relay private bridge lives on the Desk; #/bridge keeps only the cross-chain private route */}
+          <Bridge
+            embedded
+            net={net} walletProvider={walletProvider} address={akAddress} isConnected={isConnected} onConnect={doConnect}
+            tokens={net.tokens.filter((t) => t.symbol === "ETH" || t.symbol === "USDG")}
+            shielded={shielded} unshieldToken={unshieldToken} shieldToken={shieldToken}
+          />
+
           <a className="btn ghost portfolio-cta" href="#/portfolio">View your portfolio  →</a>
           </div>
         </div>

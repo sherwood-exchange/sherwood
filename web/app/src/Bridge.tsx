@@ -65,11 +65,13 @@ function ChainDropdown({ chains, value, onChange, placeholder }: {
   );
 }
 
-export function Bridge({ net, walletProvider, address, isConnected, onConnect, tokens, shielded, unshieldToken, shieldToken }: {
+export function Bridge({ net, walletProvider, address, isConnected, onConnect, tokens, shielded, unshieldToken, shieldToken, embedded }: {
   net: NetworkConfig; walletProvider: any; address?: string; isConnected: boolean; onConnect: () => void;
   tokens: TokenInfo[]; shielded: Record<string, bigint>;
   unshieldToken: (token: TokenInfo, amount: bigint, recipient: Address) => Promise<void>;
   shieldToken: (token: TokenInfo, amount: bigint) => Promise<void>;
+  /** Desk placement: render ONLY the Relay bridge card (the #/bridge page renders only the private route). */
+  embedded?: boolean;
 }) {
   const [dir, setDir] = useState<Dir>("out");
   const [chains, setChains] = useState<RelayChain[]>([]);
@@ -289,17 +291,9 @@ export function Bridge({ net, walletProvider, address, isConnected, onConnect, t
   const disabled = working || amount <= 0n || !q || otherId === RH || (dir === "out" && (!validDest || overBal));
   const label = overBal ? `Insufficient shielded ${sym}` : working ? "Bridging…" : dir === "out" ? "Bridge out privately" : "Bridge in + shield";
 
-  return (
-    <div className="app">
-      <div className="app-head">
-        <div>
-          <h2 style={{ fontFamily: "var(--display)", fontSize: 26, margin: 0 }}>Private Bridge</h2>
-          <p className="muted mono-sm" style={{ margin: "4px 0 0" }}>Move value in/out of Robinhood Chain — unlinked from your shielded pool.</p>
-        </div>
-      </div>
-
-      <div className="desk-one">
-        <section className="card">
+  // the Relay bridge card — on the Desk when `embedded`; the #/bridge page shows only the private route
+  const relayCard = (
+        <section className="card" style={embedded ? { marginTop: 18 } : undefined}>
           <div className="tabs">
             <button className={`tab ${dir === "out" ? "active" : ""}`} onClick={() => { setDir("out"); setStatus(null); }}>Bridge out</button>
             <button className={`tab ${dir === "in" ? "active" : ""}`} onClick={() => { setDir("in"); setSym("ETH"); setStatus(null); }}>Bridge in</button>
@@ -370,6 +364,19 @@ export function Bridge({ net, walletProvider, address, isConnected, onConnect, t
           )}
           <p className="mono-sm muted" style={{ marginTop: 10, fontSize: 11 }}>Keep a little native gas on each chain. Bridging is powered by Relay; Sherwood adds the privacy on the Robinhood-Chain side.{dir === "in" ? " Bridge-in requires funds + gas on the source chain." : ""}</p>
         </section>
+  );
+
+  if (embedded) return relayCard;
+
+  return (
+    <div className="app">
+      <div className="app-head">
+        <div>
+          <h2 style={{ fontFamily: "var(--display)", fontSize: 26, margin: 0 }}>Private Route</h2>
+          <p className="muted mono-sm" style={{ margin: "4px 0 0" }}>Arrive from — or leave to — any chain: BTC, XMR, SOL &amp; more, with the trail broken en route. The Relay bridge lives on your Desk.</p>
+        </div>
+      </div>
+      <div className="desk-one">
         <XChainPanel net={net} address={address} isConnected={isConnected} onConnect={onConnect} />
       </div>
     </div>
