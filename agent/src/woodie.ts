@@ -18,6 +18,7 @@ export type Action =
   | { kind: "private_transfer"; symbol: string; amount: string; to: string }
   | { kind: "unshield"; symbol: string; amount: string; to: string }
   | { kind: "shielded_swap"; symbolIn: string; symbolOut: string; amount: string }
+  | { kind: "public_swap"; symbolIn: string; symbolOut: string; amount: string }
   | { kind: "portfolio" }
   | { kind: "quote"; symbolIn: string; symbolOut: string; amount: string }
   | { kind: "bridge_quote"; amount: string; chain: string }
@@ -75,6 +76,7 @@ function systemPrompt(): string {
     '  {"kind":"private_transfer","symbol":"USDG","amount":"100","to":"<shielded address>"} — private transfer to a Sherwood shielded address\n' +
     '  {"kind":"unshield","symbol":"USDG","amount":"50","to":"0x…"}      — withdraw to a clear 0x address\n' +
     '  {"kind":"shielded_swap","symbolIn":"ETH","symbolOut":"AAPL","amount":"0.005"} — private swap inside the pool\n' +
+    '  {"kind":"public_swap","symbolIn":"ETH","symbolOut":"USDG","amount":"1"}       — ordinary on-chain swap (NOT private) via the public aggregator\n' +
     '  {"kind":"portfolio"}                                             — user asks to see their balances\n' +
     '  {"kind":"quote","symbolIn":"ETH","symbolOut":"USDG","amount":"1"} — price a swap without executing\n' +
     '  {"kind":"bridge_quote","amount":"0.05","chain":"base"}            — price bridging ETH out of Robinhood Chain to another chain (amount is ETH)\n' +
@@ -96,8 +98,9 @@ function systemPrompt(): string {
     "- 'What can I trade', 'which tokens do you support', 'list the markets' → universe.\n" +
     "- Staking $SWOOD → route(stake). Bridging / on-ramp / deposit from another chain → route(bridge). " +
     "PUBLIC (non-private) swaps → route(swap). Governance / voting → route(govern). Points / rewards → route(points).\n" +
-    "- A swap is 'shielded_swap' ONLY when the user asks to keep it private/shielded; otherwise a plain " +
-    "'swap' request is public → route(swap).\n" +
+    "- A swap is 'shielded_swap' ONLY when the user asks to keep it private/shielded. A plain 'swap X to Y' " +
+    "with amount + both tokens → public_swap (executed right here, clearly marked NOT private). If details " +
+    "are missing, clarify. Only use route(swap) when the user asks to open/see the Swap page itself.\n" +
     "- Greetings, 'what can you do', 'how does shielding work' → answer.\n" +
     "- 'say' is ONE short, calm line. Never claim an action already happened — the user still confirms & signs."
   );
@@ -151,6 +154,15 @@ function repair(obj: any, message: string): Reply {
       if (symbolIn === symbolOut) return clarify("Pick two different tokens for the swap.");
       if (!amount) return clarify(`How much ${symbolIn} should I swap into ${symbolOut}?`);
       return withSay(`Privately swap ${amount} ${symbolIn} into ${symbolOut}.`, { kind: "shielded_swap", symbolIn, symbolOut, amount });
+    }
+    case "public_swap": {
+      const symbolIn = resolveSym(a.symbolIn ?? a.symbol_in ?? a.from);
+      const symbolOut = resolveSym(a.symbolOut ?? a.symbol_out ?? a.to);
+      const amount = cleanAmount(a.amount);
+      if (!symbolIn || !symbolOut) return clarify("Which two tokens should I swap?");
+      if (symbolIn === symbolOut) return clarify("Pick two different tokens for the swap.");
+      if (!amount) return clarify(`How much ${symbolIn} should I swap into ${symbolOut}?`);
+      return withSay(`Swap ${amount} ${symbolIn} into ${symbolOut} — public, not shielded.`, { kind: "public_swap", symbolIn, symbolOut, amount });
     }
     case "quote": {
       // Price checks: a single token means "price it in USDG" (≈ USD); a missing amount means 1 unit.
@@ -241,8 +253,8 @@ export function ruleChat(message: string): Reply {
     return clarify("Which token should I price? e.g. 'price AAPL' or 'quote 1 ETH to USDG'.");
   }
 
-  // shielded swap: "private swap 0.005 eth to aapl" | "privately swap 0.005 eth into aapl"
-  if (/(private|shield).*swap|swap.*(privat|shield)/.test(m) || (/\bswap\b/.test(m) && /(privat|shield)/.test(m))) {
+  // shielded swap: "private swap 0.005 eth to aapl" | "privately trade 0.005 eth into aapl"
+  if (/\b(swap|convert|exchange|trade)\b/.test(m) && /(privat|shield)/.test(m)) {
     const amount = cleanAmount((m.match(/[\d.]+/) ?? [])[0]);
     const pair = m.match(/([a-z]{1,10})\s+(?:to|into|for|→|->)\s+([a-z]{1,10})/);
     const symbolIn = resolveSym(pair?.[1]), symbolOut = resolveSym(pair?.[2]);
@@ -250,8 +262,15 @@ export function ruleChat(message: string): Reply {
       return { say: `Privately swap ${amount} ${symbolIn} into ${symbolOut}.`, action: { kind: "shielded_swap", symbolIn, symbolOut, amount } };
     return clarify("Tell me the amount and the two tokens, e.g. 'privately swap 0.005 ETH into AAPL'.");
   }
-  // plain swap → public swap page
-  if (/\bswap\b/.test(m)) return { say: "Public swaps are on the Swap page. Want it private instead? Ask me to 'privately swap'.", action: { kind: "route", to: "swap", note: "public swap" } };
+  // plain swap with full details → executable public swap; otherwise deep-link the Swap page
+  if (/\b(swap|convert|exchange|trade)\b/.test(m)) {
+    const amount = cleanAmount((m.match(/[\d.]+/) ?? [])[0]);
+    const pair = m.match(/([a-z]{1,10})\s+(?:to|into|for|→|->)\s+([a-z]{1,10})/);
+    const symbolIn = resolveSym(pair?.[1]), symbolOut = resolveSym(pair?.[2]);
+    if (symbolIn && symbolOut && amount && symbolIn !== symbolOut)
+      return { say: `Swap ${amount} ${symbolIn} into ${symbolOut} — public, not shielded. Say 'privately swap' if you want it shielded.`, action: { kind: "public_swap", symbolIn, symbolOut, amount } };
+    return { say: "Tell me the amount and pair (e.g. 'swap 1 ETH to USDG') and I'll set it up — public. For a shielded trade, say 'privately swap'.", action: { kind: "route", to: "swap", note: "public swap" } };
+  }
 
   // unshield / withdraw: "withdraw 50 usdg to 0x.." (must have a 0x address)
   if (/\b(withdraw|unshield|redeem)\b/.test(m)) {

@@ -5,10 +5,13 @@
 // shielded swap — plus quotes, a portfolio view, and deep-links to stake/bridge/swap/govern/points.
 // WOODIE never invents balances and never gives financial advice.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createPublicClient, http, parseUnits, parseEther, formatUnits, getAddress, type Address } from "viem";
+import { createPublicClient, createWalletClient, custom, http, parseUnits, parseEther, formatUnits, getAddress, maxUint256, type Address } from "viem";
+import { chainById, ERC20_ABI } from "@sherwood/client";
 import type { NetworkConfig, TokenInfo } from "./config";
 import { quoteRoute } from "./routing";
 import { relayChains, relayQuote } from "./relay";
+import { quotePublic, resolveSpoke, isHub, NATIVE as AGG_NATIVE, type AggToken } from "./aggregator";
+import { AGG_ABI, spokeArg } from "./PublicSwap";
 import { TokenAvatar } from "./TokenUI";
 import { toast, dismiss } from "./Toast";
 
@@ -17,6 +20,7 @@ const PLAN_BASE = ((import.meta as any).env?.VITE_PLAN_URL as string | undefined
 // shielded pools are thinner than a single public swap — keep a generous floor on the minOut.
 const SLIP_BPS = 300n; // 3%
 const RH_CHAIN_ID = 4663; // Robinhood Chain — the only origin WOODIE bridges out of
+const PUB_SLIP_BPS = 100n; // public aggregator pools are deep — 1%, same default as the Swap page
 
 // ---- shared action contract (mirrors agent/src/woodie.ts) ----
 type RouteTo = "stake" | "bridge" | "swap" | "govern" | "points";
@@ -25,6 +29,7 @@ type Action =
   | { kind: "private_transfer"; symbol: string; amount: string; to: string }
   | { kind: "unshield"; symbol: string; amount: string; to: string }
   | { kind: "shielded_swap"; symbolIn: string; symbolOut: string; amount: string }
+  | { kind: "public_swap"; symbolIn: string; symbolOut: string; amount: string }
   | { kind: "portfolio" }
   | { kind: "quote"; symbolIn: string; symbolOut: string; amount: string }
   | { kind: "bridge_quote"; amount: string; chain: string }
@@ -36,7 +41,7 @@ interface Reply { say: string; action?: Action }
 
 type Msg = { role: "user"; text: string } | { role: "woodie"; text: string; action?: Action };
 
-const EXECUTABLE = new Set(["shield", "private_transfer", "unshield", "shielded_swap"]);
+const EXECUTABLE = new Set(["shield", "private_transfer", "unshield", "shielded_swap", "public_swap"]);
 const chainOf = (net: NetworkConfig): any => ({
   id: net.chainId, name: net.label,
   nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
@@ -51,7 +56,7 @@ const readableErr = (e: any): string => {
   return m.length > 160 ? m.slice(0, 160) + "…" : m;
 };
 
-const EXAMPLES = ["Shield 0.01 ETH", "Private swap 0.005 ETH → AAPL", "Price of NVDA", "What can I trade?", "Bridge 0.05 ETH to Base", "My portfolio"];
+const EXAMPLES = ["Shield 0.01 ETH", "Private swap 0.005 ETH → AAPL", "Swap 0.01 ETH → USDG", "Price of NVDA", "What can I trade?", "Bridge 0.05 ETH to Base", "My portfolio"];
 const ROUTE_LABEL: Record<RouteTo, string> = { stake: "Stake", bridge: "Bridge", swap: "Swap", govern: "Govern", points: "Points" };
 
 export interface WoodieProps {
@@ -397,6 +402,44 @@ function ConfirmCard({ action, explorer, ...p }: WoodieProps & { action: Action;
         const minOut = expected != null && expected > 0n ? (expected * (10000n - SLIP_BPS)) / 10000n : 0n;
         await p.swapMulti(tin, amt, tout, minOut);
         dismiss(id);
+      } else if (action.kind === "public_swap") {
+        // same router call as the Swap page (AggRouter, 1% slippage) — WOODIE just fills the form.
+        const tin = need(tokenBySymbol(action.symbolIn), action.symbolIn);
+        const tout = need(tokenBySymbol(action.symbolOut), action.symbolOut);
+        if (!net.aggRouter) throw new Error("Public swaps aren't configured on this network.");
+        if (!p.walletProvider || !p.address) throw new Error("Connect your wallet first.");
+        const toAgg = async (t: TokenInfo): Promise<AggToken> => {
+          const address = (t.native ? AGG_NATIVE : t.address) as Address;
+          const base = { address, symbol: t.symbol, name: t.name ?? t.symbol, decimals: t.decimals };
+          if (isHub(address)) return { ...base, spoke: null };
+          const spoke = await resolveSpoke(pc as any, address, t.decimals);
+          if (!spoke) throw new Error(`No public liquidity route for ${t.symbol}.`);
+          return { ...base, spoke };
+        };
+        const [ain, aout] = await Promise.all([toAgg(tin), toAgg(tout)]);
+        const value = parseUnits(action.amount, ain.decimals);
+        const expected = await quotePublic(pc as any, ain, aout, value);
+        if (expected == null || expected <= 0n) throw new Error("No route for that pair right now.");
+        const minOut = (expected * (10000n - PUB_SLIP_BPS)) / 10000n;
+        const wc = createWalletClient({ account: p.address as Address, chain: chainById(net.chainId), transport: custom(p.walletProvider) });
+        try { await p.walletProvider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x" + net.chainId.toString(16) }] }); } catch { /* manual */ }
+        if (ain.address !== AGG_NATIVE) {
+          const allow = (await pc.readContract({ address: ain.address, abi: ERC20_ABI, functionName: "allowance", args: [p.address as Address, net.aggRouter] })) as bigint;
+          if (allow < value) {
+            toast({ id, kind: "busy", msg: `Approving ${tin.symbol}…` });
+            const ah = await wc.writeContract({ address: ain.address, abi: ERC20_ABI, functionName: "approve", args: [net.aggRouter, maxUint256] });
+            await pc.waitForTransactionReceipt({ hash: ah });
+          }
+        }
+        toast({ id, kind: "busy", msg: `Swapping ${action.amount} ${tin.symbol} → ${tout.symbol}…` });
+        const deadline = BigInt(Math.floor(Date.now() / 1000) + 1800);
+        const h = await wc.writeContract({
+          address: net.aggRouter, abi: AGG_ABI, functionName: "swap",
+          args: [ain.address, spokeArg(ain), aout.address, spokeArg(aout), value, minOut, deadline, p.address as Address],
+          value: ain.address === AGG_NATIVE ? value : 0n,
+        });
+        await pc.waitForTransactionReceipt({ hash: h });
+        toast({ id, kind: "ok", msg: `Swapped ${action.amount} ${tin.symbol} → ${tout.symbol}.`, hash: h, explorer });
       }
       setDone(true);
     } catch (e: any) {
@@ -444,6 +487,8 @@ function describe(a: Action): { icon: string; title: string; sub: string; amount
       return { icon: "↧", title: `Unshield ${a.symbol}`, sub: `To ${short(a.to)}`, amount: `${a.amount} ${a.symbol}`, verb: `Unshielding ${a.amount} ${a.symbol}`, symbols: [a.symbol] };
     case "shielded_swap":
       return { icon: "⇄", title: `Shielded swap`, sub: `${a.symbolIn} → ${a.symbolOut}, re-shielded`, amount: `${a.amount} ${a.symbolIn}`, verb: `Swapping ${a.amount} ${a.symbolIn} → ${a.symbolOut}`, symbols: [a.symbolIn, a.symbolOut] };
+    case "public_swap":
+      return { icon: "⇄", title: `Public swap`, sub: `${a.symbolIn} → ${a.symbolOut} — on-chain, NOT private`, amount: `${a.amount} ${a.symbolIn}`, verb: `Swapping ${a.amount} ${a.symbolIn} → ${a.symbolOut}`, symbols: [a.symbolIn, a.symbolOut] };
     default:
       return { icon: "•", title: "", sub: "", amount: "", verb: "Working", symbols: [] };
   }
