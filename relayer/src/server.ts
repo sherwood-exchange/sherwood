@@ -15,6 +15,7 @@ import { createPublicClient, createWalletClient, http, getAddress, parseEther } 
 import { privateKeyToAccount } from "viem/accounts";
 import { config } from "./config.js";
 import { screenAddress } from "./screen.js";
+import { handleXchain } from "./xchain.js";
 import { SHERWOOD_ABI } from "../../client/src/abi.js";
 import { deserializeBuiltTx } from "../../client/src/serde.js";
 import { extDataHash } from "../../client/src/extdata.js";
@@ -197,7 +198,7 @@ const server = createServer(async (req, res) => {
     res.writeHead(204, {
       "access-control-allow-origin": "*",
       "access-control-allow-methods": "GET, POST, OPTIONS",
-      "access-control-allow-headers": "content-type",
+      "access-control-allow-headers": "content-type, x-user-timezone",
     });
     return res.end();
   }
@@ -207,6 +208,12 @@ const server = createServer(async (req, res) => {
   }
   if (req.method === "POST" && req.url === "/transact") return handleTransact(req, res);
   if (req.method === "POST" && req.url === "/fund-gas") return handleFundGas(req, res);
+  // cross-chain private on/off-ramp proxy (Houdini/AnySwap keys stay server-side)
+  if ((req.url ?? "").startsWith("/xchain/")) {
+    const limited = rateLimit(req, Date.now());
+    if (limited) return json(res, 429, { error: "rate limited", detail: limited });
+    if (await handleXchain(req, res, clientIp(req))) return;
+  }
   return json(res, 404, { error: "not found" });
 });
 
