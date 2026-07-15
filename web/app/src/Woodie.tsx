@@ -420,7 +420,6 @@ function ConfirmCard({ action, explorer, ...p }: WoodieProps & { action: Action;
         const value = parseUnits(action.amount, ain.decimals);
         const expected = await quotePublic(pc as any, ain, aout, value);
         if (expected == null || expected <= 0n) throw new Error("No route for that pair right now.");
-        const minOut = (expected * (10000n - PUB_SLIP_BPS)) / 10000n;
         const wc = createWalletClient({ account: p.address as Address, chain: chainById(net.chainId), transport: custom(p.walletProvider) });
         try { await p.walletProvider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x" + net.chainId.toString(16) }] }); } catch { /* manual */ }
         if (ain.address !== AGG_NATIVE) {
@@ -431,11 +430,33 @@ function ConfirmCard({ action, explorer, ...p }: WoodieProps & { action: Action;
             await pc.waitForTransactionReceipt({ hash: ah });
           }
         }
-        toast({ id, kind: "busy", msg: `Swapping ${action.amount} ${tin.symbol} → ${tout.symbol}…` });
         const deadline = BigInt(Math.floor(Date.now() / 1000) + 1800);
+        const swapArgs = (minOut: bigint) =>
+          [ain.address, spokeArg(ain), aout.address, spokeArg(aout), value, minOut, deadline, p.address as Address] as const;
+        // The off-chain quote misses the router's $SWOOD-tiered protocol fee and any token
+        // transfer tax (e.g. SWOOD keeps ~1% leaving its pair), so a quote-derived minOut can sit
+        // above what the router can actually deliver. Simulate the exact call first — the result
+        // IS the deliverable amount — and floor 0.5% under that for price movement.
+        let minOut: bigint;
+        try {
+          const { result } = await pc.simulateContract({
+            account: p.address as Address, address: net.aggRouter, abi: AGG_ABI, functionName: "swap",
+            args: swapArgs(0n) as any, value: ain.address === AGG_NATIVE ? value : 0n,
+          });
+          minOut = ((result as bigint) * (10000n - 50n)) / 10000n;
+        } catch {
+          // simulation unavailable — fall back to the quote minus protocol fee, minus 1% slip.
+          const feeBps = (await pc.readContract({
+            address: net.aggRouter, abi: [{ name: "feeBpsFor", type: "function", stateMutability: "view", inputs: [{ type: "address" }], outputs: [{ type: "uint256" }] }] as const,
+            functionName: "feeBpsFor", args: [p.address as Address],
+          }).catch(() => 30n)) as bigint;
+          const netOut = (expected * (10000n - feeBps)) / 10000n;
+          minOut = (netOut * (10000n - PUB_SLIP_BPS)) / 10000n;
+        }
+        toast({ id, kind: "busy", msg: `Swapping ${action.amount} ${tin.symbol} → ${tout.symbol}…` });
         const h = await wc.writeContract({
           address: net.aggRouter, abi: AGG_ABI, functionName: "swap",
-          args: [ain.address, spokeArg(ain), aout.address, spokeArg(aout), value, minOut, deadline, p.address as Address],
+          args: swapArgs(minOut) as any,
           value: ain.address === AGG_NATIVE ? value : 0n,
         });
         await pc.waitForTransactionReceipt({ hash: h });
