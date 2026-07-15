@@ -121,13 +121,14 @@ export async function getUniverse(): Promise<UniverseLive[]> {
 const COMPUTE_URL = "https://compute.virtuals.io/v1/chat/completions";
 const DEFAULT_MODEL = process.env.PLAN_MODEL || "anthropic-claude-sonnet-5";
 
-/** POST to Virtuals Compute. Throws if VIRTUALS_API_KEY is unset, or on error/timeout (10s) — so
- * buildPlan falls back to the deterministic rule-based planner. */
+/** POST to Virtuals Compute. Throws if VIRTUALS_API_KEY is unset, or on error/timeout (25s) — so
+ * buildPlan falls back to the deterministic rule-based planner. (10s proved too tight in prod:
+ * Compute + Sonnet routinely exceeded it, silently downgrading WOODIE to the regex parser.) */
 export async function callCompute(messages: Array<{ role: string; content: string }>, model = DEFAULT_MODEL): Promise<string> {
   const key = process.env.VIRTUALS_API_KEY;
   if (!key) throw new Error("VIRTUALS_API_KEY unset — using rule-based planner");
   const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), 10_000);
+  const t = setTimeout(() => ctrl.abort(), 25_000);
   try {
     const r = await fetch(COMPUTE_URL, {
       method: "POST", signal: ctrl.signal,

@@ -229,14 +229,16 @@ export function ruleChat(message: string): Reply {
   if (/\b(portfolio|balances?|holdings?|my (funds|money|assets))\b/.test(m))
     return { say: "Here's your portfolio.", action: { kind: "portfolio" } };
 
-  // quote: "quote eth usdg 1" | "quote 1 eth to usdg" | "price 0.5 eth in usdg"
-  if (/\b(quote|price)\b/.test(m)) {
+  // quote: "quote 1 eth to usdg" | "price of NVDA" (amount defaults to 1; single token prices vs USDG)
+  if (/\b(quote|price|worth)\b|\bhow much is\b/.test(m)) {
     const nums = m.match(/[\d.]+/);
-    const syms = (m.match(/\b[a-z]{1,10}\b/g) ?? []).map(resolveSym).filter(Boolean) as string[];
-    const amount = cleanAmount(nums?.[0]);
-    if (syms.length >= 2 && amount && syms[0] !== syms[1])
-      return { say: `Quote for ${amount} ${syms[0]} → ${syms[1]}.`, action: { kind: "quote", symbolIn: syms[0], symbolOut: syms[1], amount } };
-    return clarify("What pair and amount should I quote? e.g. 'quote 1 ETH to USDG'.");
+    const syms = [...new Set((m.match(/\b[a-z]{1,10}\b/g) ?? []).map(resolveSym).filter(Boolean) as string[])];
+    const amount = cleanAmount(nums?.[0]) ?? "1";
+    let symbolIn = syms[0] ?? null, symbolOut = syms[1] ?? null;
+    if (symbolIn && !symbolOut) symbolOut = symbolIn === "USDG" ? "ETH" : "USDG";
+    if (symbolIn && symbolOut && symbolIn !== symbolOut)
+      return { say: `Quote for ${amount} ${symbolIn} → ${symbolOut}.`, action: { kind: "quote", symbolIn, symbolOut, amount } };
+    return clarify("Which token should I price? e.g. 'price AAPL' or 'quote 1 ETH to USDG'.");
   }
 
   // shielded swap: "private swap 0.005 eth to aapl" | "privately swap 0.005 eth into aapl"
@@ -298,7 +300,9 @@ export async function chat(message: string, ctx?: ChatCtx): Promise<Reply> {
     for (const t of history) msgs.push({ role: t.role === "user" ? "user" : "assistant", content: t.text.slice(0, 400) });
     msgs.push({ role: "user", content: msg + ctxLine });
     return repair(parseJson(await callCompute(msgs)), msg);
-  } catch {
+  } catch (e: any) {
+    // visible in docker logs — an LLM failure here silently downgrades UX to the regex parser.
+    console.warn(`woodie: LLM path failed (${e?.message ?? e}) — using ruleChat for: ${msg.slice(0, 80)}`);
     // no LLM: if WOODIE just asked a clarifying question, the new message is probably the missing
     // detail — re-parse it merged onto the previous user message ("shield eth" + "0.5").
     const lastWoodie = [...history].reverse().find((t) => t.role === "woodie");
