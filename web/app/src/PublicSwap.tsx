@@ -223,9 +223,23 @@ export function PublicSwap({ net, walletProvider, address, isConnected, onConnec
       }
       notify({ kind: "busy", msg: `Swapping ${human}…` });
       const deadline = BigInt(Math.floor(Date.now() / 1000) + 1800);
+      // The off-chain quote misses token transfer taxes (e.g. SWOOD keeps ~1% leaving its pair),
+      // so a quote-derived minOut can sit above the deliverable amount and revert every buy.
+      // Simulate the exact call first — the result IS the deliverable — and floor the user's
+      // slippage under that; fall back to the quote-derived minOut if simulation fails.
+      let floor = minOut;
+      try {
+        const { result } = await pc.simulateContract({
+          account: address as Address, address: router, abi: AGG_ABI, functionName: "swap",
+          args: [inTok.address as Address, spokeArg(inTok), outTok.address as Address, spokeArg(outTok), value, 0n, deadline, address as Address],
+          value: inTok.address === NATIVE ? value : 0n,
+        });
+        const sim = result as bigint;
+        floor = sim - (sim * BigInt(Math.round((parseFloat(slip) || 1) * 100))) / 10000n;
+      } catch { /* keep quote-derived minOut */ }
       const h = await wc.writeContract({
         address: router, abi: AGG_ABI, functionName: "swap",
-        args: [inTok.address as Address, spokeArg(inTok), outTok.address as Address, spokeArg(outTok), value, minOut, deadline, address as Address],
+        args: [inTok.address as Address, spokeArg(inTok), outTok.address as Address, spokeArg(outTok), value, floor, deadline, address as Address],
         value: inTok.address === NATIVE ? value : 0n,
       });
       await pc.waitForTransactionReceipt({ hash: h });

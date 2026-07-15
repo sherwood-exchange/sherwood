@@ -715,7 +715,12 @@ html, body, #root { max-width: 100%; }
 /* ===== Private cross-chain ramp (Bridge page + WOODIE card) ===== */
 .xc { margin-top: 18px; display: flex; flex-direction: column; gap: 12px; }
 .xc-head { display: flex; flex-direction: column; gap: 4px; }
+.xc-titlerow { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .xc-title { margin: 0; font-family: var(--display); font-size: 19px; }
+.xc-dir { display: inline-flex; background: var(--covert); border: 1px solid var(--line); border-radius: 999px; padding: 3px; }
+.xc-dirbtn { cursor: pointer; border: 0; background: transparent; color: var(--moon-dim); font-family: var(--mono); font-size: 12px; font-weight: 700; padding: 5px 14px; border-radius: 999px; }
+.xc-dirbtn.sel { background: rgba(204,255,0,0.12); color: var(--lime); }
+.xc-payout.bad { border-color: var(--danger); }
 .xc-sub { margin: 0; line-height: 1.5; }
 .xc-form { display: flex; gap: 10px; }
 .xc-select { flex: 1.2; padding: 11px 12px; }

@@ -56,6 +56,28 @@ async function req(net: NetworkConfig, path: string, init?: RequestInit): Promis
 export const xchainProviders = (net: NetworkConfig): Promise<{ houdini: boolean; anyswap: boolean }> =>
   req(net, "/providers");
 
+export interface XChainInfo { shortName: string; name: string; addressValidation?: string; memoNeeded?: boolean }
+let CHAINSP: Promise<Map<string, XChainInfo>> | null = null;
+/** Houdini chain metadata by shortName (cached) — used to validate destination addresses per chain. */
+export function xchainChains(net: NetworkConfig): Promise<Map<string, XChainInfo>> {
+  CHAINSP ??= req(net, "/chains").then((j: any) => {
+    const m = new Map<string, XChainInfo>();
+    for (const c of j.chains ?? j ?? []) m.set(String(c.shortName ?? c.name).toLowerCase(), {
+      shortName: c.shortName, name: c.name, addressValidation: c.addressValidation, memoNeeded: !!c.memoNeeded,
+    });
+    return m;
+  }).catch((e) => { CHAINSP = null; throw e; });
+  return CHAINSP;
+}
+/** Validate a destination address for one of our curated chains (true when no regex is known). */
+export async function xchainValidAddress(net: NetworkConfig, chain: string, addr: string): Promise<boolean> {
+  try {
+    const info = (await xchainChains(net)).get(chain.toLowerCase());
+    if (!info?.addressValidation) return addr.trim().length > 10;
+    return new RegExp(info.addressValidation).test(addr.trim());
+  } catch { return addr.trim().length > 10; }
+}
+
 /** Best private + best standard quote for `amount` of `fromId` → `toId`. */
 export async function xchainQuote(net: NetworkConfig, fromId: string, toId: string, amount: number): Promise<{ private?: XQuote; standard?: XQuote }> {
   const j = await req(net, "/quote", { method: "POST", body: JSON.stringify({ provider: "houdini", amount, from: fromId, to: toId }) });

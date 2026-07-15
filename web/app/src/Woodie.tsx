@@ -12,7 +12,7 @@ import { quoteRoute } from "./routing";
 import { relayChains, relayQuote } from "./relay";
 import { quotePublic, resolveSpoke, isHub, NATIVE as AGG_NATIVE, type AggToken } from "./aggregator";
 import { AGG_ABI, spokeArg } from "./PublicSwap";
-import { X_ASSETS, ETH_BASE_ID, xchainQuote } from "./xchain";
+import { X_ASSETS, ETH_BASE_ID, xchainQuote, xchainCreate, xchainStatus, xchainStatusLabel, xchainDone, xchainValidAddress, type XQuote, type XOrder } from "./xchain";
 import { TokenAvatar } from "./TokenUI";
 import { toast, dismiss } from "./Toast";
 
@@ -35,6 +35,7 @@ type Action =
   | { kind: "quote"; symbolIn: string; symbolOut: string; amount: string }
   | { kind: "bridge_quote"; amount: string; chain: string }
   | { kind: "xchain_quote"; symbol: string; amount: string }
+  | { kind: "xchain_out"; symbol: string; amount: string }
   | { kind: "universe" }
   | { kind: "route"; to: RouteTo; note?: string }
   | { kind: "answer" }
@@ -191,7 +192,8 @@ function ActionView({ action, explorer, ...p }: WoodieProps & { action: Action; 
   if (action.kind === "portfolio") return <PortfolioCard net={p.net} shielded={p.shielded} clear={p.clear} />;
   if (action.kind === "quote") return <QuoteCard net={p.net} action={action} tokenBySymbol={p.tokenBySymbol} />;
   if (action.kind === "bridge_quote") return <BridgeQuoteCard action={action} />;
-  if (action.kind === "xchain_quote") return <XChainQuoteCard net={p.net} action={action} />;
+  if (action.kind === "xchain_quote") return <XChainRampCard net={p.net} dir="in" symbol={action.symbol} amount={action.amount} address={p.address} />;
+  if (action.kind === "xchain_out") return <XChainRampCard net={p.net} dir="out" symbol={action.symbol} amount={action.amount} address={p.address} />;
   if (action.kind === "universe") return <UniverseCard net={p.net} />;
   if (EXECUTABLE.has(action.kind)) return <ConfirmCard action={action} explorer={explorer} {...p} />;
   return null; // answer / clarify — say bubble is enough
@@ -320,39 +322,99 @@ function BridgeQuoteCard({ action }: { action: Extract<Action, { kind: "bridge_q
     </div>
   );
 }
-/** Private cross-chain in-route quote (Houdini leg → ETH on Base); execution lives on the Bridge page. */
-function XChainQuoteCard({ net, action }: { net: NetworkConfig; action: Extract<Action, { kind: "xchain_quote" }> }) {
-  const [state, setState] = useState<{ out: string; eta?: number } | { err: string } | null>(null);
+/** Private cross-chain ramp card — quotes AND executes the Houdini leg right in the chat.
+ *  dir "in": <symbol> → ETH@Base at the user's 0x. dir "out": ETH@Base → <symbol> at a pasted address.
+ *  Created orders land in the same localStorage slot the Bridge panel watches, so they carry over. */
+function XChainRampCard({ net, dir, symbol, amount, address }: { net: NetworkConfig; dir: "in" | "out"; symbol: string; amount: string; address?: string }) {
+  const [quote, setQuote] = useState<XQuote | null | "loading" | "none">("loading");
+  const [dest, setDest] = useState(dir === "in" ? (address ?? "") : "");
+  const [destOk, setDestOk] = useState<boolean | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [order, setOrder] = useState<XOrder | null>(null);
+  const [status, setStatus] = useState<string | undefined>(undefined);
+  const [err, setErr] = useState<string | null>(null);
+  const asset = X_ASSETS.find((a) => a.symbol === symbol);
+
   useEffect(() => {
     let live = true;
     (async () => {
       try {
-        const asset = X_ASSETS.find((a) => a.symbol === action.symbol);
-        if (!asset) { if (live) setState({ err: `I can't route ${action.symbol} yet.` }); return; }
-        const q = await xchainQuote(net, asset.id, ETH_BASE_ID, Number(action.amount));
-        const best = q.private ?? q.standard;
-        if (!live) return;
-        if (!best) { setState({ err: "No private route for that amount right now (try a larger amount)." }); return; }
-        setState({ out: best.amountOut.toFixed(6), eta: best.duration });
-      } catch (e: any) { if (live) setState({ err: readableErr(e) }); }
+        if (!asset) { if (live) setQuote("none"); return; }
+        const [from, to] = dir === "in" ? [asset.id, ETH_BASE_ID] : [ETH_BASE_ID, asset.id];
+        const q = await xchainQuote(net, from, to, Number(amount));
+        if (live) setQuote(q.private ?? q.standard ?? "none");
+      } catch { if (live) setQuote("none"); }
     })();
     return () => { live = false; };
-  }, [action.symbol, action.amount, net]);
+  }, [symbol, amount, dir, net]);
+
+  useEffect(() => { if (dir === "in" && !dest && address) setDest(address); }, [address]);
+  useEffect(() => {
+    const a = dest.trim();
+    if (!a || !asset) { setDestOk(null); return; }
+    if (dir === "in") { setDestOk(/^0x[0-9a-fA-F]{40}$/.test(a)); return; }
+    let live = true;
+    xchainValidAddress(net, asset.chain, a).then((ok) => { if (live) setDestOk(ok); });
+    return () => { live = false; };
+  }, [dest, dir, asset?.chain, net]);
+
+  useEffect(() => {
+    if (!order || xchainDone(status)) return;
+    const t = setInterval(async () => {
+      try { const s = await xchainStatus(net, order.houdiniId); setStatus(s.displayStatus); } catch { /* transient */ }
+    }, 15_000);
+    return () => clearInterval(t);
+  }, [order?.houdiniId, status, net]);
+
+  async function create() {
+    if (quote == null || typeof quote === "string" || !destOk) return;
+    setCreating(true); setErr(null);
+    try {
+      const o = await xchainCreate(net, quote.quoteId, dest.trim());
+      setOrder(o); setStatus(o.displayStatus);
+      try { localStorage.setItem("sherwood-xchain-order", JSON.stringify({ ...o, dir })); } catch { /* private mode */ }
+    } catch (e: any) { setErr(readableErr(e)); }
+    finally { setCreating(false); }
+  }
+  const copy = async (s: string) => { try { await navigator.clipboard.writeText(s); toast({ kind: "ok", msg: "Copied." }); } catch { /* blocked */ } };
+
+  const pair = dir === "in" ? <>{amount} {symbol} <em>→</em> Sherwood</> : <>{amount} ETH <em>→</em> {symbol}</>;
+  const outLabel = quote === "loading" ? "quoting…" : quote === "none" || quote == null ? "no route"
+    : `≈ ${quote.amountOut.toFixed(6)} ${dir === "in" ? "ETH on Base" : symbol}`;
+
+  if (order) {
+    return (
+      <div className="woodie-card quote">
+        <div className="wc-row"><span className="wc-pair">{pair}</span><span className="wc-out">{xchainStatusLabel(status)}</span></div>
+        <div className="wc-sub mono-sm muted" style={{ flexDirection: "column", alignItems: "flex-start", gap: 6 }}>
+          <span>Send exactly <b>{order.inAmount} {order.inSymbol}{dir === "out" ? " (on Base)" : ""}</b> to:</span>
+          <button type="button" className="xc-copy mono-sm" onClick={() => copy(order.depositAddress)}>{order.depositAddress} ⧉</button>
+          {order.depositTag && <span>memo/tag (required!): <b>{order.depositTag}</b></span>}
+          <span>order {order.houdiniId}{order.expires ? ` · deposit before ${new Date(order.expires).toLocaleTimeString()}` : ""} · progress also shows on the Bridge page</span>
+          {status === "SWAP_COMPLETED" && dir === "in" && <a href="#/bridge">✓ Landed on Base — open Bridge to Relay it in + shield ↗</a>}
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="woodie-card quote">
-      <div className="wc-row">
-        <span className="wc-pair">{action.amount} {action.symbol} <em>→</em> Sherwood</span>
-        <span className="wc-out">{state == null ? "quoting…" : "err" in state ? "no route" : `≈ ${state.out} ETH on Base`}</span>
-      </div>
-      <div className="wc-sub mono-sm muted">
-        {state != null && "err" in state ? <span>{state.err}</span> : (
-          <>
-            <span>private multi-hop CEX route{state && "eta" in state && state.eta ? ` · ~${state.eta} min` : ""}</span>
-            <span>then Relay in + shield</span>
-            <a href="#/bridge">Open Bridge to execute ↗</a>
-          </>
-        )}
-      </div>
+      <div className="wc-row"><span className="wc-pair">{pair}</span><span className="wc-out">{outLabel}</span></div>
+      {quote !== "loading" && quote !== "none" && quote != null && (
+        <>
+          <div className="wc-sub mono-sm muted">
+            <span>private multi-hop CEX route{quote.duration ? ` · ~${quote.duration} min` : ""}</span>
+            {dir === "in" ? <span>then Relay in + shield</span> : <span>funded with ETH on Base (bridge OUT above)</span>}
+          </div>
+          <input className={`xc-payout mono-sm ${destOk === false ? "bad" : ""}`}
+            placeholder={dir === "in" ? "0x… payout address on Base (your wallet)" : `${symbol} destination address`}
+            value={dest} onChange={(e) => setDest(e.target.value)} />
+          {err && <p className="xc-err mono-sm" style={{ margin: 0 }}>{err}</p>}
+          <button className="btn block cc-btn" disabled={creating || !destOk} onClick={create}>
+            {creating ? <><span className="spin dark" />Creating order…</> : "Get deposit address"}
+          </button>
+        </>
+      )}
+      {quote === "none" && <div className="wc-sub mono-sm muted"><span>No route for that amount right now — try a larger amount, or the panel on the Bridge page.</span></div>}
     </div>
   );
 }
