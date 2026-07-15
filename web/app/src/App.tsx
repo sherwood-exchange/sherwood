@@ -21,11 +21,12 @@ import { ToastHost, toast, dismiss } from "./Toast";
 
 type Tab = "shield" | "send" | "swap" | "withdraw";
 type Status = { kind: "ok" | "err" | "busy"; msg: string; hash?: string } | null;
-type Route = "points" | "referral" | "portfolio" | "swap" | "bridge" | "stake" | "govern" | "plan" | "";
+type Route = "points" | "referral" | "portfolio" | "swap" | "bridge" | "stake" | "govern" | "woodie" | "";
 
 function parseRoute(): Route {
   const h = (location.hash || "").replace(/^#\/?/, "");
-  return h === "points" || h === "referral" || h === "portfolio" || h === "swap" || h === "bridge" || h === "stake" || h === "govern" || h === "plan" ? h : "";
+  if (h === "plan") return "woodie"; // legacy deep-link — WOODIE lived at #/plan before the announce
+  return h === "points" || h === "referral" || h === "portfolio" || h === "swap" || h === "bridge" || h === "stake" || h === "govern" || h === "woodie" ? h : "";
 }
 
 export default function App() {
@@ -349,8 +350,8 @@ export default function App() {
 
   return (
     <>
-      <Background still={route === "plan"} />
-      {route === "plan" && <div className="woodie-backdrop" aria-hidden />}
+      <Background still={route === "woodie"} />
+      {route === "woodie" && <div className="woodie-backdrop" aria-hidden />}
       <Nav
         net={net}
         inApp={!!conn}
@@ -381,7 +382,7 @@ export default function App() {
         />
       ) : route === "stake" ? (
         <Stake net={net} walletProvider={walletProvider} address={akAddress} isConnected={isConnected} onConnect={doConnect} />
-      ) : route === "plan" ? (
+      ) : route === "woodie" ? (
         <Woodie
           net={net} walletProvider={walletProvider} address={akAddress} isConnected={isConnected} onConnect={doConnect}
           shielded={shielded} clear={clear}

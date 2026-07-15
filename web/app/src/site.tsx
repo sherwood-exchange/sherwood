@@ -59,7 +59,7 @@ export function Nav({
           <>
             {/* In-app: only routes that exist here (landing-section anchors don't). */}
             <a className="link" href="#/">Desk</a>
-            <a className="link" href="#/plan">WOODIE</a>
+            <a className="link" href="#/woodie">WOODIE</a>
             <a className="link" href="#/swap">Swap</a>
             <a className="link" href="#/bridge">Bridge</a>
             <a className="link" href="#/stake">Stake</a>
@@ -71,7 +71,7 @@ export function Nav({
           <>
             <a className="link" href="#protocol">Protocol</a>
             <a className="link" href="#how">How it works</a>
-            <a className="link" href="#/plan">WOODIE</a>
+            <a className="link" href="#/woodie">WOODIE</a>
             <a className="link" href="#/swap">Swap</a>
             <a className="link" href="#/bridge">Bridge</a>
             <a className="link" href="#swood">$SWOOD</a>
