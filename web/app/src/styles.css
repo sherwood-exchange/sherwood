@@ -722,6 +722,58 @@ html, body, #root { max-width: 100%; }
 .pool-recv { text-align: right; }
 .pool-pos { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); color: var(--moon-dim); }
 
+/* ===== Private Route — multichain swap (two-panel, Houdini-style layout) ===== */
+.xr { display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 18px; align-items: start; }
+@media (max-width: 860px) { .xr { grid-template-columns: 1fr; } }
+.xr-form { display: flex; flex-direction: column; gap: 10px; position: relative; }
+.xr-panel { background: var(--covert); border: 1px solid var(--line); border-radius: 14px; padding: 13px 14px; display: flex; flex-direction: column; gap: 6px; }
+.xr-toprow { display: flex; justify-content: space-between; align-items: center; }
+.xr-line { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.xr-line .ap-amount { flex: 1; min-width: 0; }
+.xr-out { flex: 1; min-width: 0; font-family: var(--display); font-weight: 800; font-size: 26px; color: var(--moon); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; }
+.xr-flip {
+  align-self: center; margin: -16px 0; z-index: 2; cursor: pointer; width: 34px; height: 34px; border-radius: 50%;
+  display: grid; place-items: center; background: var(--panel); border: 1px solid var(--line-2); color: var(--moon-dim); transition: all 0.15s;
+}
+.xr-flip:hover { color: var(--lime); border-color: var(--lime); transform: rotate(180deg); }
+
+/* token+chain picker */
+.xr-pick { position: relative; flex: 0 0 auto; }
+.xr-tokbtn {
+  display: flex; align-items: center; gap: 9px; cursor: pointer; padding: 7px 10px; border-radius: 12px;
+  background: var(--panel); border: 1px solid var(--line-2); color: var(--moon); transition: border-color 0.15s;
+}
+.xr-tokbtn:hover { border-color: var(--lime); }
+.xr-tokmeta { display: flex; flex-direction: column; align-items: flex-start; line-height: 1.15; min-width: 0; }
+.xr-tokmeta b { font-size: 14px; font-weight: 700; }
+.xr-tokmeta i { font-style: normal; font-size: 10.5px; color: var(--moon-dim); font-family: var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 130px; }
+.xr-menu {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 30; width: 300px; max-width: 84vw;
+  background: var(--panel); border: 1px solid var(--line-2); border-radius: 14px; padding: 10px; box-shadow: 0 18px 50px rgba(0,0,0,0.55);
+}
+.xr-search { width: 100%; padding: 9px 11px; margin-bottom: 8px; }
+.xr-list { max-height: 300px; overflow-y: auto; scrollbar-width: thin; display: flex; flex-direction: column; gap: 2px; }
+.xr-item { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; cursor: pointer; padding: 8px 9px; border-radius: 10px; background: transparent; border: 0; color: var(--moon); }
+.xr-item:hover { background: var(--covert); }
+.xr-item .xr-tokmeta i { max-width: 200px; }
+
+/* routes panel */
+.xr-routes { display: flex; flex-direction: column; gap: 10px; }
+.xr-rhead { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.xr-route {
+  display: flex; flex-direction: column; gap: 6px; text-align: left; cursor: pointer; padding: 12px 13px;
+  background: var(--covert); border: 1px solid var(--line); border-radius: 14px; color: var(--moon); transition: border-color 0.15s;
+}
+.xr-route:hover { border-color: var(--line-2); }
+.xr-route.sel { border-color: rgba(204,255,0,0.55); background: rgba(204,255,0,0.05); }
+.xr-rtop { display: flex; justify-content: space-between; align-items: center; }
+.xr-badge { font-family: var(--mono); font-size: 10.5px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase; padding: 3px 9px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line-2); color: var(--moon-dim); }
+.xr-badge.private { background: rgba(204,255,0,0.12); border-color: rgba(204,255,0,0.4); color: var(--lime); }
+.xr-check { color: var(--lime); font-weight: 800; }
+.xr-ramt { font-family: var(--display); font-weight: 800; font-size: 21px; font-variant-numeric: tabular-nums; }
+.xr-ramt em { font-style: normal; font-size: 13px; color: var(--moon-dim); }
+.xr-rmeta { display: flex; gap: 12px; color: var(--moon-dim); }
+
 /* ===== Private cross-chain ramp (Bridge page + WOODIE card) ===== */
 .xc { margin-top: 18px; display: flex; flex-direction: column; gap: 12px; }
 .xc-head { display: flex; flex-direction: column; gap: 4px; }

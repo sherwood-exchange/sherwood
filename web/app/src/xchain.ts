@@ -28,8 +28,8 @@ export const X_ASSETS: XAsset[] = [
 ];
 
 export interface XQuote {
-  quoteId: string; type: "private" | "standard" | "dex"; swapName?: string;
-  amountIn: number; amountOut: number; amountOutUsd?: number; duration?: number;
+  quoteId: string; type: "private" | "standard" | "dex"; swap?: string; swapName?: string;
+  amountIn: number; amountOut: number; amountInUsd?: number; amountOutUsd?: number; duration?: number;
   min?: number; max?: number;
 }
 export interface XOrder {
@@ -84,6 +84,25 @@ export async function xchainQuote(net: NetworkConfig, fromId: string, toId: stri
   const quotes: XQuote[] = j.quotes ?? [];
   const best = (t: string) => quotes.filter((q) => q.type === t && q.amountOut > 0).sort((a, b) => b.amountOut - a.amountOut)[0];
   return { private: best("private"), standard: best("standard") };
+}
+
+/** ALL routes for a pair (the multichain routes panel), throws with the API's message on no-route. */
+export async function xchainQuotesAll(net: NetworkConfig, fromId: string, toId: string, amount: number): Promise<XQuote[]> {
+  const j = await req(net, "/quote", { method: "POST", body: JSON.stringify({ provider: "houdini", amount, from: fromId, to: toId }) });
+  return ((j.quotes ?? []) as XQuote[]).filter((q) => q.amountOut > 0);
+}
+
+/** A token from Houdini's full multichain catalog (searchable picker). */
+export interface XToken { id: string; symbol: string; chain: string; name?: string; icon?: string; hasCex?: boolean; hasDex?: boolean }
+/** Search the catalog through the proxy. CEX-capable tokens only by default — cross-chain routing needs the CEX rail. */
+export async function xchainTokenSearch(net: NetworkConfig, term: string, opts?: { anyRail?: boolean }): Promise<XToken[]> {
+  const qs = new URLSearchParams({ pageSize: "30" });
+  if (term.trim()) qs.set("term", term.trim());
+  if (!opts?.anyRail) qs.set("hasCex", "true");
+  const j = await req(net, `/tokens?${qs}`);
+  return ((j.tokens ?? []) as any[]).map((t) => ({
+    id: t.id, symbol: t.symbol, chain: t.chain, name: t.name, icon: t.icon, hasCex: t.hasCex, hasDex: t.hasDex,
+  }));
 }
 
 /** Create the exchange; `addressTo` receives the funds (for the IN leg: your address on Base). */

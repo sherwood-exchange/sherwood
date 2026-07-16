@@ -373,12 +373,10 @@ export function Bridge({ net, walletProvider, address, isConnected, onConnect, t
       <div className="app-head">
         <div>
           <h2 style={{ fontFamily: "var(--display)", fontSize: 26, margin: 0 }}>Private Route</h2>
-          <p className="muted mono-sm" style={{ margin: "4px 0 0" }}>Arrive from — or leave to — any chain: BTC, XMR, SOL &amp; more, with the trail broken en route. The Relay bridge lives on your Desk.</p>
+          <p className="muted mono-sm" style={{ margin: "4px 0 0" }}>Swap anything, anywhere — 1000+ tokens across 100 chains, with the trail broken en route. The Relay bridge lives on your Desk.</p>
         </div>
       </div>
-      <div className="desk-one">
-        <XChainPanel net={net} address={address} isConnected={isConnected} onConnect={onConnect} />
-      </div>
+      <XChainPanel net={net} address={address} isConnected={isConnected} onConnect={onConnect} />
     </div>
   );
 }
