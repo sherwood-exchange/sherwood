@@ -188,19 +188,23 @@ export function XChainPanel({ net, address, isConnected, onConnect }: {
 
   useEffect(() => { xchainProviders(net).then((p) => setEnabled(p.houdini)).catch(() => setEnabled(false)); }, [net]);
 
-  // Quotes are ON DEMAND (Houdini free tier: 50/day) — inputs changing just clears stale results.
-  useEffect(() => { setQuotes(null); setQErr(null); setSelId(null); setExpanded(false); }, [from.id, to.id, amt, fixed]);
-  async function findRoutes() {
+  // Live quotes (pro tier: 5000/day) — debounced on inputs; the relayer still caches 60s.
+  useEffect(() => {
+    setQuotes(null); setQErr(null); setSelId(null); setExpanded(false);
     const n = Number(amt);
-    if (!(n > 0) || quoting) return;
-    setQuoting(true); setQErr(null);
-    try {
-      const qs = await xchainQuotesAll(net, from.id, to.id, n, fixed ? { fixed: true, refundAddress: refundOk ? refund.trim() : undefined } : undefined);
-      setQuotes(qs);
-      if (!qs.length) setQErr(fixed ? "No fixed-rate route for this pair/amount — try floating." : "No route for this pair/amount right now.");
-    } catch (e: any) { setQErr(friendlyErr(e)); }
-    finally { setQuoting(false); }
-  }
+    if (!(n > 0)) return;
+    if (deb.current) clearTimeout(deb.current);
+    deb.current = setTimeout(async () => {
+      setQuoting(true);
+      try {
+        const qs = await xchainQuotesAll(net, from.id, to.id, n, fixed ? { fixed: true, refundAddress: refundOk ? refund.trim() : undefined } : undefined);
+        setQuotes(qs);
+        if (!qs.length) setQErr(fixed ? "No fixed-rate route for this pair/amount — try floating." : "No route for this pair/amount right now.");
+      } catch (e: any) { setQErr(friendlyErr(e)); }
+      finally { setQuoting(false); }
+    }, 700);
+    return () => { if (deb.current) clearTimeout(deb.current); };
+  }, [from.id, to.id, amt, fixed, net]);
 
   // destination address validation + prefill for EVM-style chains
   useEffect(() => {
@@ -264,10 +268,8 @@ export function XChainPanel({ net, address, isConnected, onConnect }: {
 
   if (enabled === false || enabled === null) return null;
 
-  const needQuotes = quotes == null;
   const cta = !Number(amt) ? "Enter an amount"
     : quoting ? "Finding routes…"
-    : needQuotes ? "Find routes"
     : !sel ? "No route — try another pair/amount"
     : !dest.trim() ? "Enter the receiving address"
     : destOk === false ? `Invalid ${to.chain} address`
@@ -346,9 +348,7 @@ export function XChainPanel({ net, address, isConnected, onConnect }: {
         )}
         {qErr && <p className="xc-err mono-sm">{qErr}</p>}
         {!isConnected && !dest && <button className="btn ghost block" onClick={onConnect}>Connect wallet to prefill (optional)</button>}
-        <button className="btn block"
-          disabled={quoting || !Number(amt) || (!needQuotes && (!sel || !destOk || creating || (fixed && !refundOk)))}
-          onClick={needQuotes ? findRoutes : create}>{cta}</button>
+        <button className="btn block" disabled={!sel || !destOk || creating || quoting || (fixed && !refundOk)} onClick={create}>{cta}</button>
       </section>
 
       {/* ---- routes ---- */}
@@ -360,9 +360,9 @@ export function XChainPanel({ net, address, isConnected, onConnect }: {
             <button type="button" role="tab" aria-selected={sort === "fastest"} className={`xc-dirbtn ${sort === "fastest" ? "sel" : ""}`} onClick={() => setSort("fastest")}>⚡ Fastest</button>
           </div>
         </div>
-        {!Number(amt) || quotes == null ? (
-          <p className="muted mono-sm" style={{ margin: 0 }}>{quoting ? "Scanning the network…" : "Enter an amount and hit Find routes — private multi-hop, standard CEX and on-chain, compared side by side."}</p>
-        ) : quoting ? (
+        {!Number(amt) ? (
+          <p className="muted mono-sm" style={{ margin: 0 }}>Enter an amount to compare every route — private multi-hop, standard CEX and on-chain.</p>
+        ) : quoting || quotes == null ? (
           <p className="muted mono-sm" style={{ margin: 0 }}>Scanning the network…</p>
         ) : !sorted.length ? (
           <p className="muted mono-sm" style={{ margin: 0 }}>{qErr ?? "No routes."}</p>

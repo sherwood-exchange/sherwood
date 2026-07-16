@@ -145,10 +145,10 @@ export async function handleXchain(req: IncomingMessage, res: ServerResponse, cl
 
     if (req.method === "POST" && path === "/xchain/quote") {
       const b = await readBody(req);
-      // Houdini's free tier allows only 50 quotes/DAY — serve repeats from a 5-minute cache.
+      // dedupe bursts + double-clicks: identical quote requests are served from a short cache
       const qKey = `q:${JSON.stringify([b.provider, b.from, b.to, b.amount, b.fixed ?? false, b.refundAddress ?? "", b.send, b.receive, b.sendNetwork, b.receiveNetwork])}`;
       const hit = cache.get(qKey);
-      if (hit && Date.now() - hit.at < 5 * 60_000) {
+      if (hit && Date.now() - hit.at < 60_000) {
         res.writeHead(hit.status, { "content-type": "application/json", "access-control-allow-origin": "*", "x-cache": "hit" });
         res.end(hit.body);
         return true;
