@@ -33,59 +33,118 @@ const POPULAR: XToken[] = [
 
 const TYPE_BADGE: Record<string, string> = { private: "Private", standard: "Standard CEX", dex: "On-chain DEX" };
 
-/** Token+chain picker button ("SOL · On Solana") that opens the searchable catalog modal. */
-function TokenChainButton({ tok, onPick, net, exclude }: { tok: XToken; onPick: (t: XToken) => void; net: NetworkConfig; exclude?: string }) {
-  const [open, setOpen] = useState(false);
+const RECENT_KEY = "sherwood-xr-recent";
+const loadRecent = (): XToken[] => { try { return JSON.parse(localStorage.getItem(RECENT_KEY) ?? "[]"); } catch { return []; } };
+const pushRecent = (t: XToken) => {
+  try {
+    const r = [t, ...loadRecent().filter((x) => x.id + x.chain !== t.id + t.chain)].slice(0, 4);
+    localStorage.setItem(RECENT_KEY, JSON.stringify(r));
+  } catch { /* private mode */ }
+};
+
+/** Centered "Select a token" modal — search, past searches, Top / Stocks tabs, full catalog list. */
+function TokenModal({ net, exclude, onPick, onClose }: { net: NetworkConfig; exclude?: string; onPick: (t: XToken) => void; onClose: () => void }) {
   const [term, setTerm] = useState("");
+  const [cat, setCat] = useState<"top" | "stocks">("top");
   const [rows, setRows] = useState<XToken[] | null>(null);
+  const [stocks, setStocks] = useState<XToken[] | null>(null);
   const [busy, setBusy] = useState(false);
-  const box = useRef<HTMLDivElement | null>(null);
+  const [recent] = useState<XToken[]>(loadRecent());
   const deb = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
-    const onClick = (e: MouseEvent) => { if (box.current && !box.current.contains(e.target as Node)) setOpen(false); };
-    window.addEventListener("keydown", onKey); window.addEventListener("mousedown", onClick);
-    return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("mousedown", onClick); };
-  }, [open]);
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    document.body.style.overflow = "hidden";
+    return () => { window.removeEventListener("keydown", onKey); document.body.style.overflow = ""; };
+  }, [onClose]);
 
+  // search across the whole catalog (CEX-routable first)
   useEffect(() => {
-    if (!open) return;
     if (!term.trim()) { setRows(null); return; }
     if (deb.current) clearTimeout(deb.current);
     deb.current = setTimeout(async () => {
       setBusy(true);
-      try { setRows(await xchainTokenSearch(net, term)); } catch { setRows([]); }
+      try {
+        const r = await xchainTokenSearch(net, term, { anyRail: true });
+        r.sort((a, b) => Number(b.hasCex ?? false) - Number(a.hasCex ?? false));
+        setRows(r);
+      } catch { setRows([]); }
       finally { setBusy(false); }
     }, 350);
     return () => { if (deb.current) clearTimeout(deb.current); };
-  }, [term, open, net]);
+  }, [term, net]);
 
-  const list = (rows ?? POPULAR).filter((t) => t.id + t.chain !== exclude);
+  // Stocks tab: the tokenized-stock universe on Robinhood Chain (same-chain DEX routes)
+  useEffect(() => {
+    if (cat !== "stocks" || stocks != null) return;
+    xchainTokenSearch(net, "", { anyRail: true, chain: "Robinhood", pageSize: 200 })
+      .then((all) => setStocks(all.filter((t) => /^[A-Z]{1,5}$/.test(t.symbol))))
+      .catch(() => setStocks([]));
+  }, [cat, stocks, net]);
+
+  const pick = (t: XToken) => { pushRecent(t); onPick(t); onClose(); };
+  const base = term.trim() ? (rows ?? []) : cat === "top" ? POPULAR : (stocks ?? []);
+  const list = base.filter((t) => t.id + t.chain !== exclude);
+
   return (
-    <div className="xr-pick" ref={box}>
-      <button type="button" className="xr-tokbtn" onClick={() => { setOpen((o) => !o); setTerm(""); }}>
+    <div className="xr-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="xr-modal" role="dialog" aria-label="Select a token">
+        <div className="xr-mhead">
+          <h3>Select a token</h3>
+          <button type="button" className="xr-x" aria-label="Close" onClick={onClose}>✕</button>
+        </div>
+        <input autoFocus className="xr-search" placeholder="Search 1000+ tokens across 100 chains" value={term} onChange={(e) => setTerm(e.target.value)} />
+        {!term.trim() && recent.length > 0 && (
+          <>
+            <p className="xr-mlabel">Past searches</p>
+            <div className="xr-recent">
+              {recent.map((t) => (
+                <button key={t.id + t.chain} type="button" className="xr-chip" title={`${t.symbol} on ${t.chain}`} onClick={() => pick(t)}>
+                  <TokenAvatar sym={t.symbol} logo={t.icon} size={26} />
+                  <span>{t.symbol}</span>
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+        {!term.trim() && (
+          <div className="xc-dir xr-cats" role="tablist">
+            <button type="button" role="tab" aria-selected={cat === "top"} className={`xc-dirbtn ${cat === "top" ? "sel" : ""}`} onClick={() => setCat("top")}>Top</button>
+            <button type="button" role="tab" aria-selected={cat === "stocks"} className={`xc-dirbtn ${cat === "stocks" ? "sel" : ""}`} onClick={() => setCat("stocks")}>Stocks</button>
+          </div>
+        )}
+        <div className="xr-list">
+          {busy && <div className="tp-empty">Searching…</div>}
+          {!busy && cat === "stocks" && !term.trim() && stocks == null && <div className="tp-empty">Loading…</div>}
+          {!busy && list.map((t) => (
+            <button key={t.id + t.chain} type="button" className="xr-item" onClick={() => pick(t)}>
+              <TokenAvatar sym={t.symbol} logo={t.icon} size={34} />
+              <span className="xr-tokmeta">
+                <b>{t.symbol} <em>{t.chain}</em></b>
+                <i>{t.name ?? t.symbol}</i>
+              </span>
+            </button>
+          ))}
+          {!busy && term.trim() && rows != null && list.length === 0 && <div className="tp-empty">No match.</div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Token+chain button ("SOL · On Solana") that opens the Select-a-token modal. */
+function TokenChainButton({ tok, onPick, net, exclude }: { tok: XToken; onPick: (t: XToken) => void; net: NetworkConfig; exclude?: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button type="button" className="xr-tokbtn" onClick={() => setOpen(true)}>
         <TokenAvatar sym={tok.symbol} logo={tok.icon} size={30} />
         <span className="xr-tokmeta"><b>{tok.symbol}</b><i>On {tok.chain}</i></span>
         <svg className="tok-chevron" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
       </button>
-      {open && (
-        <div className="xr-menu">
-          <input autoFocus className="xr-search mono-sm" placeholder="Search 1000+ tokens — btc, sol, usdt…" value={term} onChange={(e) => setTerm(e.target.value)} />
-          <div className="xr-list">
-            {busy && <div className="tp-empty">Searching…</div>}
-            {!busy && list.map((t) => (
-              <button key={t.id + t.chain} type="button" className="xr-item" onClick={() => { onPick(t); setOpen(false); }}>
-                <TokenAvatar sym={t.symbol} logo={t.icon} size={26} />
-                <span className="xr-tokmeta"><b>{t.symbol}</b><i>{t.name ?? t.symbol} · {t.chain}</i></span>
-              </button>
-            ))}
-            {!busy && rows != null && list.length === 0 && <div className="tp-empty">No CEX-routable match.</div>}
-          </div>
-        </div>
-      )}
-    </div>
+      {open && <TokenModal net={net} exclude={exclude} onPick={onPick} onClose={() => setOpen(false)} />}
+    </>
   );
 }
 

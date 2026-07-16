@@ -95,9 +95,10 @@ export async function xchainQuotesAll(net: NetworkConfig, fromId: string, toId: 
 /** A token from Houdini's full multichain catalog (searchable picker). */
 export interface XToken { id: string; symbol: string; chain: string; name?: string; icon?: string; hasCex?: boolean; hasDex?: boolean }
 /** Search the catalog through the proxy. CEX-capable tokens only by default — cross-chain routing needs the CEX rail. */
-export async function xchainTokenSearch(net: NetworkConfig, term: string, opts?: { anyRail?: boolean }): Promise<XToken[]> {
-  const qs = new URLSearchParams({ pageSize: "30" });
+export async function xchainTokenSearch(net: NetworkConfig, term: string, opts?: { anyRail?: boolean; chain?: string; pageSize?: number }): Promise<XToken[]> {
+  const qs = new URLSearchParams({ pageSize: String(opts?.pageSize ?? 30) });
   if (term.trim()) qs.set("term", term.trim());
+  if (opts?.chain) qs.set("chain", opts.chain);
   if (!opts?.anyRail) qs.set("hasCex", "true");
   const j = await req(net, `/tokens?${qs}`);
   return ((j.tokens ?? []) as any[]).map((t) => ({
