@@ -255,7 +255,6 @@ export function XChainPanel({ net, address, isConnected, onConnect }: {
         {qErr && <p className="xc-err mono-sm">{qErr}</p>}
         {!isConnected && !dest && <button className="btn ghost block" onClick={onConnect}>Connect wallet to prefill (optional)</button>}
         <button className="btn block" disabled={!sel || !destOk || creating || quoting} onClick={create}>{cta}</button>
-        <p className="muted mono-sm xc-fine">One-time deposit address — no approval, no wallet signature, fees included. The trail breaks inside the CEX hops.</p>
       </section>
 
       {/* ---- routes ---- */}

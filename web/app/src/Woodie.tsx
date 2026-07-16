@@ -24,7 +24,7 @@ const RH_CHAIN_ID = 4663; // Robinhood Chain — the only origin WOODIE bridges 
 const PUB_SLIP_BPS = 100n; // public aggregator pools are deep — 1%, same default as the Swap page
 
 // ---- shared action contract (mirrors agent/src/woodie.ts) ----
-type RouteTo = "stake" | "bridge" | "swap" | "govern" | "points";
+type RouteTo = "stake" | "bridge" | "swap" | "govern" | "points" | "pool";
 type Action =
   | { kind: "shield"; symbol: string; amount: string }
   | { kind: "private_transfer"; symbol: string; amount: string; to: string }
@@ -60,7 +60,7 @@ const readableErr = (e: any): string => {
 };
 
 const EXAMPLES = ["Shield 0.01 ETH", "Private swap 0.005 ETH → AAPL", "Swap 0.01 ETH → USDG", "Price of NVDA", "What can I trade?", "Bridge 0.05 ETH to Base", "My portfolio"];
-const ROUTE_LABEL: Record<RouteTo, string> = { stake: "Stake", bridge: "Bridge", swap: "Swap", govern: "Govern", points: "Points" };
+const ROUTE_LABEL: Record<RouteTo, string> = { stake: "Stake", bridge: "Bridge", swap: "Swap", govern: "Govern", points: "Points", pool: "Pool" };
 
 export interface WoodieProps {
   net: NetworkConfig;
@@ -172,7 +172,6 @@ export function Woodie(props: WoodieProps) {
               {thinking ? <span className="spin dark" /> : <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z" /></svg>}
             </button>
           </form>
-          {!isConnected && <p className="woodie-foot mono-sm muted">Connect your wallet to execute — WOODIE shows a confirm card and you sign every action yourself.</p>}
         </div>
       </div>
     </div>

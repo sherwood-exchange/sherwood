@@ -362,7 +362,6 @@ export function Bridge({ net, walletProvider, address, isConnected, onConnect, t
           ) : (
             <button className="btn block" style={{ marginTop: 14 }} disabled={disabled} onClick={doBridge}>{label}</button>
           )}
-          <p className="mono-sm muted" style={{ marginTop: 10, fontSize: 11 }}>Keep a little native gas on each chain. Bridging is powered by Relay; Sherwood adds the privacy on the Robinhood-Chain side.{dir === "in" ? " Bridge-in requires funds + gas on the source chain." : ""}</p>
         </section>
   );
 

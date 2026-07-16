@@ -267,10 +267,6 @@ export function PoolPage({ net, walletProvider, address, isConnected, onConnect 
               <span>{trim(formatEther(lpBal), 6)} LP · {share.toFixed(2)}% of pool · ≈ {trim(formatEther(mySwood), 2)} SWOOD + {trim(formatEther(myWeth), 6)} ETH</span>
             </div>
           )}
-          <p className="mono-sm muted" style={{ marginTop: 12, fontSize: 11 }}>
-            LPs earn the 0.30% fee on every SWOOD/ETH swap through this pair. Prices move — impermanent loss applies.
-            Pair {PAIR.slice(0, 8)}… on SherwoodV2 (our own factory), counted for future $SWOOD incentives.
-          </p>
         </section>
       </div>
     </div>
