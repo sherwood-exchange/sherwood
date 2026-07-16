@@ -15,6 +15,12 @@ import { toast } from "./Toast";
 const LS_KEY = "sherwood-xchain-order";
 const short = (s: string, n = 10) => (s.length > n * 2 + 2 ? `${s.slice(0, n)}…${s.slice(-6)}` : s);
 const fmt = (n: number, d = 6) => n.toLocaleString("en-US", { maximumFractionDigits: d, useGrouping: false });
+/** validUntil arrives as unix SECONDS (not ISO, despite the schema saying string). */
+const fmtLockTime = (v: string | number) => {
+  const n = Number(v);
+  const d = Number.isFinite(n) ? new Date(n < 1e12 ? n * 1000 : n) : new Date(v);
+  return isNaN(d.getTime()) ? "" : d.toLocaleTimeString();
+};
 
 const T = (id: string, symbol: string, chain: string, name: string, icon?: string): XToken =>
   ({ id, symbol, chain, name, icon: icon ?? `https://api.houdiniswap.com/assets/tokens/${symbol.toLowerCase()}-${chain}.png` });
@@ -323,7 +329,7 @@ export function XChainPanel({ net, address, isConnected, onConnect }: {
           <button type="button" className={`xr-fixed ${fixed ? "on" : ""}`} aria-pressed={fixed} onClick={() => setFixed((f) => !f)}>
             <span className="xr-fixed-dot" aria-hidden />Fixed rate — output guaranteed
           </button>
-          {sel?.fixed && sel.validUntil && <span className="mono-sm muted">locks until {new Date(sel.validUntil).toLocaleTimeString()}</span>}
+          {sel?.fixed && sel.validUntil != null && <span className="mono-sm muted">locks until {fmtLockTime(sel.validUntil)}</span>}
         </div>
         {fixed && (
           <>

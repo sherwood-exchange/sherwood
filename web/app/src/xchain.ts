@@ -30,7 +30,7 @@ export const X_ASSETS: XAsset[] = [
 export interface XQuote {
   quoteId: string; type: "private" | "standard" | "dex"; swap?: string; swapName?: string;
   amountIn: number; amountOut: number; amountInUsd?: number; amountOutUsd?: number; duration?: number;
-  min?: number; max?: number; fixed?: boolean; validUntil?: string;
+  min?: number; max?: number; fixed?: boolean; validUntil?: string | number;
 }
 export interface XOrder {
   houdiniId: string; depositAddress: string; depositTag?: string | null;
