@@ -180,6 +180,21 @@ function clientIp(req: IncomingMessage): string {
   }
   return req.socket.remoteAddress ?? "unknown";
 }
+const xchainHits = new Map<string, number[]>();
+const xchainGlobal: number[] = [];
+/** /xchain limiter: 120/min per IP, 2000/min global. */
+function xchainRateLimit(req: IncomingMessage, now: number): string | null {
+  const prune = (arr: number[]) => { while (arr.length && arr[0] <= now - WINDOW_MS) arr.shift(); };
+  prune(xchainGlobal);
+  if (xchainGlobal.length >= 2000) return "global rate limit";
+  const ip = clientIp(req);
+  const arr = xchainHits.get(ip) ?? [];
+  prune(arr);
+  if (arr.length >= 120) return "per-IP rate limit";
+  arr.push(now); xchainHits.set(ip, arr); xchainGlobal.push(now);
+  return null;
+}
+
 /** Returns null if allowed, or a reason string if rate-limited. */
 function rateLimit(req: IncomingMessage, now: number): string | null {
   const prune = (arr: number[]) => { while (arr.length && arr[0] <= now - WINDOW_MS) arr.shift(); };
@@ -208,9 +223,11 @@ const server = createServer(async (req, res) => {
   }
   if (req.method === "POST" && req.url === "/transact") return handleTransact(req, res);
   if (req.method === "POST" && req.url === "/fund-gas") return handleFundGas(req, res);
-  // cross-chain private on/off-ramp proxy (Houdini/AnySwap keys stay server-side)
+  // cross-chain private on/off-ramp proxy (Houdini/AnySwap keys stay server-side).
+  // Its own roomy limiter — the 10/min /transact limiter guards GAS, but the ramp UI is
+  // chatty (quotes + token search + SSE) and the upstream pro tier is the real ceiling.
   if ((req.url ?? "").startsWith("/xchain/")) {
-    const limited = rateLimit(req, Date.now());
+    const limited = xchainRateLimit(req, Date.now());
     if (limited) return json(res, 429, { error: "rate limited", detail: limited });
     if (await handleXchain(req, res, clientIp(req))) return;
   }

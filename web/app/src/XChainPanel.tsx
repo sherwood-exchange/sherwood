@@ -220,14 +220,6 @@ export function XChainPanel({ net, address, isConnected, onConnect }: {
     xchainValidAddress(net, to.chain, address).then((ok) => { if (live && ok) setDest(address); });
     return () => { live = false; };
   }, [to.chain, address]);
-  // fixed-rate refunds land on the SOURCE chain — validate + prefill against from.chain
-  useEffect(() => {
-    const a = refund.trim();
-    if (!fixed || !a) { setRefundOk(a ? null : null); if (!a && fixed && address) { let live = true; xchainValidAddress(net, from.chain, address).then((ok) => { if (live && ok) setRefund(address); }); return () => { live = false; }; } return; }
-    let live = true;
-    xchainValidAddress(net, from.chain, a).then((ok) => { if (live) setRefundOk(ok); });
-    return () => { live = false; };
-  }, [refund, fixed, from.chain, address, net]);
 
   // live order updates (SSE via the relayer's Houdini WebSocket; falls back to polling)
   useEffect(() => {
@@ -248,6 +240,16 @@ export function XChainPanel({ net, address, isConnected, onConnect }: {
     return arr;
   }, [quotes, sort]);
   const sel = sorted.find((q) => q.quoteId === selId) ?? sorted[0] ?? null;
+  // Refunds land on the SOURCE chain. Needed when the toggle is on OR the selected quote is
+  // fixed anyway (some partners only quote fixed) — validate + prefill against from.chain.
+  const needRefund = fixed || !!sel?.fixed;
+  useEffect(() => {
+    const a = refund.trim();
+    if (!needRefund || !a) { setRefundOk(null); if (!a && needRefund && address) { let live = true; xchainValidAddress(net, from.chain, address).then((ok) => { if (live && ok) setRefund(address); }); return () => { live = false; }; } return; }
+    let live = true;
+    xchainValidAddress(net, from.chain, a).then((ok) => { if (live) setRefundOk(ok); });
+    return () => { live = false; };
+  }, [refund, needRefund, from.chain, address, net]);
   const shown = expanded ? sorted.slice(0, 30) : sorted.slice(0, 3);
   const toSherwood = to.id === ETH_BASE_ID;
 
@@ -257,7 +259,7 @@ export function XChainPanel({ net, address, isConnected, onConnect }: {
     if (!sel || !destOk) return;
     setCreating(true);
     try {
-      const o = { ...(await xchainCreate(net, sel.quoteId, dest.trim(), sel.fixed ? refund.trim() : undefined)), toSherwood };
+      const o = { ...(await xchainCreate(net, sel.quoteId, dest.trim(), sel.fixed || fixed ? refund.trim() : undefined)), toSherwood };
       setOrder(o); setStatus(o.displayStatus);
       try { localStorage.setItem(LS_KEY, JSON.stringify(o)); } catch { /* private mode */ }
     } catch (e: any) { setQErr(String(e?.message ?? e)); }
@@ -273,7 +275,7 @@ export function XChainPanel({ net, address, isConnected, onConnect }: {
     : !sel ? "No route — try another pair/amount"
     : !dest.trim() ? "Enter the receiving address"
     : destOk === false ? `Invalid ${to.chain} address`
-    : fixed && !refundOk ? "Enter a refund address (fixed rate)"
+    : needRefund && !refundOk ? "Enter a refund address (fixed rate)"
     : creating ? "Creating order…"
     : `Get deposit address — receive ${sel.fixed ? "exactly" : "≈"} ${fmt(sel.amountOut)} ${to.symbol}`;
 
@@ -338,7 +340,7 @@ export function XChainPanel({ net, address, isConnected, onConnect }: {
           </button>
           {sel?.fixed && sel.validUntil != null && <span className="mono-sm muted">locks until {fmtLockTime(sel.validUntil)}</span>}
         </div>
-        {fixed && (
+        {needRefund && (
           <>
             <input className={`xc-payout mono-sm ${refundOk === false ? "bad" : ""}`}
               placeholder={`Refund address on ${from.chain} (required for fixed rate)`}
@@ -348,7 +350,7 @@ export function XChainPanel({ net, address, isConnected, onConnect }: {
         )}
         {qErr && <p className="xc-err mono-sm">{qErr}</p>}
         {!isConnected && !dest && <button className="btn ghost block" onClick={onConnect}>Connect wallet to prefill (optional)</button>}
-        <button className="btn block" disabled={!sel || !destOk || creating || quoting || (fixed && !refundOk)} onClick={create}>{cta}</button>
+        <button className="btn block" disabled={!sel || !destOk || creating || quoting || (needRefund && !refundOk)} onClick={create}>{cta}</button>
       </section>
 
       {/* ---- routes ---- */}
