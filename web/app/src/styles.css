@@ -728,6 +728,17 @@ html, body, #root { max-width: 100%; }
 .woodie-send { flex: 0 0 auto; width: 46px; height: 46px; padding: 0; display: grid; place-items: center; border-radius: 14px; }
 .woodie-foot { text-align: center; margin: 10px 0 0; line-height: 1.5; }
 
+/* desk summary strip — shielded holdings at a glance */
+.desk-sum { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin: -6px 0 18px; }
+.ds-chip {
+  display: inline-flex; align-items: center; gap: 7px; font-size: 13.5px; font-weight: 600; color: var(--moon);
+  background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 7px 14px;
+  font-variant-numeric: tabular-nums;
+}
+.ds-chip.empty { color: var(--moon-dim); font-weight: 500; }
+.ds-chip.link { color: var(--lime); border-color: rgba(198,244,50,0.3); transition: border-color 0.15s; }
+.ds-chip.link:hover { border-color: var(--lime); }
+
 /* ===== Portfolio (Uniswap-style) ===== */
 .pf-id { display: flex; align-items: center; gap: 14px; margin-bottom: 22px; }
 .pf-ava { width: 46px; height: 46px; border-radius: 50%; flex: 0 0 auto; }

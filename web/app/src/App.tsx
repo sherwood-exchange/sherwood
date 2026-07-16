@@ -417,11 +417,28 @@ export default function App() {
         <div className="app">
           <div className="app-head">
             <div>
-              <h2 style={{ fontFamily: "var(--display)", fontSize: 26, margin: 0 }}>Your shielded desk</h2>
+              <h2 style={{ fontFamily: "var(--display)", fontSize: 26, margin: 0 }}>Desk</h2>
               <p className="muted mono-sm" style={{ margin: "4px 0 0" }}>
-                Keys derived from a wallet signature — they never left your browser.
+                Shield, move and trade privately — keys never left your browser.
               </p>
             </div>
+          </div>
+
+          {/* shielded holdings at a glance */}
+          <div className="desk-sum">
+            {net.tokens
+              .filter((t, i) => net.tokens.findIndex((x) => x.address === t.address) === i)
+              .filter((t) => (shielded[t.symbol] ?? 0n) > 0n)
+              .map((t) => (
+                <span className="ds-chip" key={t.symbol} title={`${formatUnits(shielded[t.symbol]!, t.decimals)} ${t.symbol} shielded`}>
+                  <TokenAvatar sym={t.symbol} logo={t.logo} size={18} />
+                  {trimAmt(formatUnits(shielded[t.symbol]!, t.decimals), 4)} {t.symbol}
+                </span>
+              ))}
+            {Object.values(shielded).every((v) => (v ?? 0n) === 0n) && (
+              <span className="ds-chip empty">Nothing shielded yet — start below 🛡</span>
+            )}
+            <a className="ds-chip link" href="#/portfolio">Portfolio →</a>
           </div>
 
           {pendingApproval && (
@@ -498,7 +515,6 @@ export default function App() {
             )}
           </section>
 
-          <a className="btn ghost portfolio-cta" href="#/portfolio">View your portfolio  →</a>
           </div>
         </div>
       )}
