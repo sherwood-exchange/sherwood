@@ -291,12 +291,15 @@ export function Bridge({ net, walletProvider, address, isConnected, onConnect, t
   const disabled = working || amount <= 0n || !q || otherId === RH || (dir === "out" && (!validDest || overBal));
   const label = overBal ? `Insufficient shielded ${sym}` : working ? "Bridging…" : dir === "out" ? "Bridge out privately" : "Bridge in + shield";
 
-  // the Relay bridge card — on the Desk when `embedded`; the #/bridge page shows only the private route
+  // the Relay bridge content — lives INSIDE the Desk card as the "Bridge" tab
   const relayCard = (
-        <section className="card" style={embedded ? { marginTop: 18 } : undefined}>
-          <div className="tabs">
-            <button className={`tab ${dir === "out" ? "active" : ""}`} onClick={() => { setDir("out"); setStatus(null); }}>Bridge out</button>
-            <button className={`tab ${dir === "in" ? "active" : ""}`} onClick={() => { setDir("in"); setSym("ETH"); setStatus(null); }}>Bridge in</button>
+        <div className="bridge-embed">
+          <div className="bridge-dir">
+            <div className="xc-dir" role="tablist">
+              <button type="button" role="tab" aria-selected={dir === "out"} className={`xc-dirbtn ${dir === "out" ? "sel" : ""}`} onClick={() => { setDir("out"); setStatus(null); }}>OUT</button>
+              <button type="button" role="tab" aria-selected={dir === "in"} className={`xc-dirbtn ${dir === "in" ? "sel" : ""}`} onClick={() => { setDir("in"); setSym("ETH"); setStatus(null); }}>IN</button>
+            </div>
+            <span className="mono-sm muted">{dir === "out" ? "Shielded → any chain, via Relay" : "Any chain → wallet → auto-shield"}</span>
           </div>
 
           {pendingEph && (
@@ -362,7 +365,7 @@ export function Bridge({ net, walletProvider, address, isConnected, onConnect, t
           ) : (
             <button className="btn block" style={{ marginTop: 14 }} disabled={disabled} onClick={doBridge}>{label}</button>
           )}
-        </section>
+        </div>
   );
 
   if (embedded) return relayCard;

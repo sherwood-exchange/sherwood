@@ -1,19 +1,20 @@
-/* Sherwood — Lime #CCFF00 · Covert #0A0E0C · Moonlight #EAF2EC.
-   Fraunces (display) + IBM Plex Mono (UI). Voice: "Leave no trace." */
+/* Sherwood — refreshed 2026-07: professional dark surface system (Uniswap/Houdini class).
+   Inter (UI) + IBM Plex Mono (numbers/addresses) + Fraunces (display). "Leave no trace." */
 :root {
-  --lime: #ccff00;
-  --lime-2: #b6e600;
-  --covert: #0a0e0c;
-  --covert-90: rgba(10, 14, 12, 0.9);
-  --covert-60: rgba(10, 14, 12, 0.6);
-  --panel: rgba(255, 255, 255, 0.03);
-  --panel-2: rgba(255, 255, 255, 0.05);
-  --moon: #eaf2ec;
-  --moon-dim: #8a978d;
-  --line: rgba(234, 242, 236, 0.1);
-  --line-2: rgba(234, 242, 236, 0.16);
+  --lime: #c6f432;          /* brand accent, one notch off neon for calm large fills */
+  --lime-2: #b3e22b;
+  --covert: #0b0d0c;        /* page base — near-black with a green whisper */
+  --covert-90: rgba(11, 13, 12, 0.9);
+  --covert-60: rgba(11, 13, 12, 0.72);
+  --panel: #121614;         /* solid card surface (no translucency — crisper without the video bg) */
+  --panel-2: #171c19;
+  --moon: #f2f6f3;
+  --moon-dim: #90a096;
+  --line: #212824;
+  --line-2: #2c352f;
   --danger: #ff6b5e;
-  --radius: 20px;
+  --radius: 18px;
+  --sans: "Inter", ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   --display: "Fraunces", Georgia, serif;
 }
@@ -25,27 +26,28 @@ body {
   margin: 0;
   background: var(--covert);
   color: var(--moon);
-  font-family: var(--mono);
+  font-family: var(--sans);
+  font-size: 14px;
   -webkit-font-smoothing: antialiased;
   overflow-x: hidden;
 }
 a { color: inherit; text-decoration: none; }
 ::selection { background: var(--lime); color: var(--covert); }
+input, select, button { font-family: var(--sans); }
 
 /* ---------- buttons ---------- */
 .btn {
-  font-family: var(--mono); font-weight: 600; font-size: 14px; letter-spacing: 0.2px;
-  cursor: pointer; border: none; border-radius: 999px; padding: 12px 22px;
-  background: var(--lime); color: var(--covert);
-  transition: transform 0.08s ease, box-shadow 0.2s ease, opacity 0.15s ease;
-  box-shadow: 0 0 0 rgba(204, 255, 0, 0);
+  font-family: var(--sans); font-weight: 600; font-size: 14.5px; letter-spacing: 0;
+  cursor: pointer; border: none; border-radius: 14px; padding: 12px 22px;
+  background: var(--lime); color: #0c1005;
+  transition: transform 0.08s ease, filter 0.15s ease, opacity 0.15s ease;
 }
-.btn:hover { box-shadow: 0 8px 30px rgba(204, 255, 0, 0.25); transform: translateY(-1px); }
+.btn:hover { filter: brightness(1.06); transform: translateY(-1px); }
 .btn:active { transform: translateY(0); }
-.btn:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: none; transform: none; }
-.btn.ghost { background: transparent; color: var(--moon); border: 1px solid var(--line-2); }
-.btn.ghost:hover { border-color: var(--lime); color: var(--lime); box-shadow: none; }
-.btn.sm { padding: 9px 16px; font-size: 13px; }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; filter: none; }
+.btn.ghost { background: var(--panel-2); color: var(--moon); border: 1px solid var(--line-2); }
+.btn.ghost:hover { border-color: var(--lime); color: var(--lime); filter: none; }
+.btn.sm { padding: 9px 16px; font-size: 13px; border-radius: 12px; }
 .btn.block { width: 100%; }
 
 /* ---------- nav ---------- */
@@ -71,18 +73,14 @@ a { color: inherit; text-decoration: none; }
 .pill.live { color: var(--lime); border-color: rgba(204, 255, 0, 0.4); }
 .pill.live::before { content: "●"; margin-right: 6px; font-size: 9px; vertical-align: 1px; }
 
-/* ---------- animated background (fallback + ambience) ---------- */
+/* ---------- background — calm static gradient (video/glows/grid removed for a clean look) ---------- */
 .bg { position: fixed; inset: 0; z-index: -2; overflow: hidden; background: var(--covert); }
-.bg video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0.55; }
-.bg .glow { position: absolute; border-radius: 50%; filter: blur(90px); opacity: 0.5; }
-.bg .g1 { width: 46vw; height: 46vw; left: -8vw; top: -10vw; background: radial-gradient(circle, rgba(204,255,0,0.35), transparent 65%); animation: drift1 22s ease-in-out infinite; }
-.bg .g2 { width: 40vw; height: 40vw; right: -6vw; top: 20vh; background: radial-gradient(circle, rgba(120,200,60,0.22), transparent 65%); animation: drift2 28s ease-in-out infinite; }
-.bg .g3 { width: 38vw; height: 38vw; left: 30vw; bottom: -14vw; background: radial-gradient(circle, rgba(204,255,0,0.14), transparent 65%); animation: drift1 32s ease-in-out infinite reverse; }
-.bg .grid { position: absolute; inset: 0; background-image: linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px); background-size: 56px 56px; mask-image: radial-gradient(ellipse 80% 60% at 50% 30%, #000 30%, transparent 75%); opacity: 0.5; }
-.bg .vignette { position: absolute; inset: 0; background: radial-gradient(ellipse 90% 70% at 50% 20%, transparent 40%, var(--covert) 92%); }
-@keyframes drift1 { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(6vw, 5vh) scale(1.1); } }
-@keyframes drift2 { 0%,100% { transform: translate(0,0) scale(1.05); } 50% { transform: translate(-5vw, -4vh) scale(0.95); } }
-@media (prefers-reduced-motion: reduce) { .bg .glow { animation: none; } }
+.bg .vignette {
+  position: absolute; inset: 0;
+  background:
+    radial-gradient(ellipse 70% 45% at 50% -10%, rgba(198, 244, 50, 0.07), transparent 60%),
+    radial-gradient(ellipse 60% 50% at 85% 110%, rgba(198, 244, 50, 0.04), transparent 60%);
+}
 
 /* ---------- layout ---------- */
 .wrap { max-width: 1120px; margin: 0 auto; padding: 0 clamp(16px, 4vw, 24px); }
@@ -155,16 +153,23 @@ a { color: inherit; text-decoration: none; }
 .footer .links a:hover { color: var(--lime); }
 
 /* ---------- the dApp (post-connect) ---------- */
-.app { max-width: 960px; margin: 0 auto; padding: 34px clamp(16px,4vw,20px) 90px; }
-.app-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 26px; }
+.app { max-width: 960px; margin: 0 auto; padding: 28px clamp(16px,4vw,20px) 90px; }
+.app-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
+/* compact professional headers — overrides the legacy inline 26px on page titles */
+.app-head h2 { font-size: 22px !important; letter-spacing: -0.3px; }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
 @media (max-width: 760px) { .grid2 { grid-template-columns: 1fr; } }
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 22px; }
 .card h2 { font-family: var(--display); font-weight: 600; font-size: 18px; margin: 0 0 4px; }
 .card .hint { color: var(--moon-dim); font-size: 12px; margin: 0 0 16px; line-height: 1.5; }
-.tabs { display: flex; gap: 8px; margin-bottom: 18px; flex-wrap: wrap; }
-.tab { padding: 8px 15px; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--moon-dim); font-size: 13px; font-family: var(--mono); cursor: pointer; }
-.tab.active { background: var(--lime); color: var(--covert); border-color: var(--lime); font-weight: 600; }
+/* segmented control (Uniswap-style pill group) */
+.tabs { display: inline-flex; gap: 2px; margin-bottom: 18px; flex-wrap: wrap; background: var(--covert); border: 1px solid var(--line); border-radius: 13px; padding: 3px; }
+.tab { padding: 8px 15px; border-radius: 10px; border: 0; background: transparent; color: var(--moon-dim); font-size: 13.5px; font-weight: 500; font-family: var(--sans); cursor: pointer; transition: color 0.12s, background 0.12s; }
+.tab:hover { color: var(--moon); }
+.tab.active { background: var(--panel-2); color: var(--moon); font-weight: 600; box-shadow: inset 0 0 0 1px var(--line-2); }
+/* embedded relay bridge (Desk "Bridge" tab) */
+.bridge-embed { display: flex; flex-direction: column; }
+.bridge-dir { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
 label { display: block; font-size: 11px; color: var(--moon-dim); text-transform: uppercase; letter-spacing: 1px; margin: 12px 0 6px; }
 input, select { width: 100%; min-width: 0; box-sizing: border-box; font-family: var(--mono); font-size: 15px; color: var(--moon); background: var(--covert); border: 1px solid var(--line); border-radius: 12px; padding: 12px 13px; }
 input:focus, select:focus { outline: none; border-color: var(--lime); }

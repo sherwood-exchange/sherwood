@@ -20,7 +20,7 @@ import { Woodie } from "./Woodie";
 import { RouteChips, TokenAvatar, TokenPicker } from "./TokenUI";
 import { ToastHost, toast, dismiss } from "./Toast";
 
-type Tab = "shield" | "send" | "swap" | "withdraw";
+type Tab = "shield" | "send" | "swap" | "withdraw" | "bridge";
 type Status = { kind: "ok" | "err" | "busy"; msg: string; hash?: string } | null;
 type Route = "points" | "referral" | "portfolio" | "swap" | "bridge" | "stake" | "govern" | "woodie" | "pool" | "";
 
@@ -443,7 +443,7 @@ export default function App() {
           <div className="desk-one">
           <section className="card">
             <div className="tabs">
-              {(["shield", "send", "swap", "withdraw"] as Tab[]).map((t) => (
+              {(["shield", "send", "swap", "withdraw", "bridge"] as Tab[]).map((t) => (
                 <button key={t} className={`tab ${tab === t ? "active" : ""}`} onClick={() => setTab(t)}>
                   {t[0].toUpperCase() + t.slice(1)}
                 </button>
@@ -491,15 +491,15 @@ export default function App() {
                 onSubmit={(token, amount, recipient) => withdrawMulti(token, amount, recipient)}
               />
             )}
+            {tab === "bridge" && (
+              <Bridge
+                embedded
+                net={net} walletProvider={walletProvider} address={akAddress} isConnected={isConnected} onConnect={doConnect}
+                tokens={net.tokens.filter((t) => t.symbol === "ETH" || t.symbol === "USDG")}
+                shielded={shielded} unshieldToken={unshieldToken} shieldToken={shieldToken}
+              />
+            )}
           </section>
-
-          {/* the Relay private bridge lives on the Desk; #/bridge keeps only the cross-chain private route */}
-          <Bridge
-            embedded
-            net={net} walletProvider={walletProvider} address={akAddress} isConnected={isConnected} onConnect={doConnect}
-            tokens={net.tokens.filter((t) => t.symbol === "ETH" || t.symbol === "USDG")}
-            shielded={shielded} unshieldToken={unshieldToken} shieldToken={shieldToken}
-          />
 
           <a className="btn ghost portfolio-cta" href="#/portfolio">View your portfolio  →</a>
           </div>
