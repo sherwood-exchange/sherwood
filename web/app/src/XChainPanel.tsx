@@ -185,7 +185,8 @@ export function XChainPanel({ net, address, isConnected, onConnect, walletProvid
   const [selId, setSelId] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [creating, setCreating] = useState(false);
-  const [order, setOrder] = useState<(XOrder & { toSherwood?: boolean }) | null>(() => {
+  type OrderView = { fromSym: string; fromChain: string; toSym: string; toChain: string; amountIn: string; amountOut: number; kind: string };
+  const [order, setOrder] = useState<(XOrder & { toSherwood?: boolean; view?: OrderView }) | null>(() => {
     try { return JSON.parse(localStorage.getItem(LS_KEY) ?? "null"); } catch { return null; }
   });
   const [status, setStatus] = useState<string | undefined>(order?.displayStatus);
@@ -293,8 +294,9 @@ export function XChainPanel({ net, address, isConnected, onConnect, walletProvid
       } else {
         o = { ...(await xchainCreate(net, sel.quoteId, dest.trim(), sel.fixed || fixed ? refund.trim() : undefined)), toSherwood };
       }
-      setOrder(o); setStatus(o.displayStatus);
-      try { localStorage.setItem(LS_KEY, JSON.stringify(o)); } catch { /* private mode */ }
+      const withView = { ...o, view: { fromSym: from.symbol, fromChain: from.chain, toSym: to.symbol, toChain: to.chain, amountIn: amt, amountOut: sel.amountOut, kind: sel.type } };
+      setOrder(withView); setStatus(o.displayStatus);
+      try { localStorage.setItem(LS_KEY, JSON.stringify(withView)); } catch { /* private mode */ }
     } catch (e: any) { setQErr(friendlyErr(e)); }
     finally { setCreating(false); }
   }
@@ -314,25 +316,30 @@ export function XChainPanel({ net, address, isConnected, onConnect, walletProvid
     : `Get deposit address — receive ${sel.fixed ? "exactly" : "≈"} ${fmt(sel.amountOut)} ${to.symbol}`;
 
   if (order) {
+    const v = order.view;
+    const isDex = v ? v.kind === "dex" : !order.depositAddress;
+    const done = status === "SWAP_COMPLETED";
+    const sent = v ? `${v.amountIn} ${v.fromSym} (${v.fromChain})` : `${order.inAmount} ${order.inSymbol}`;
+    const recv = v ? `${fmt(v.amountOut)} ${v.toSym} (${v.toChain})` : `${order.outAmount} ${order.outSymbol}`;
     return (
       <section className="card xc" style={{ maxWidth: 560, margin: "0 auto" }}>
-        <div className="xc-head"><h3 className="xc-title">Private route in flight</h3></div>
+        <div className="xc-head"><h3 className="xc-title">{done ? "Private route complete ✓" : xchainDone(status) ? "Private route ended" : "Private route in flight"}</h3></div>
         <div className="xc-order">
-          {order.depositAddress ? (
+          {isDex ? (
+            <div className="xc-row"><span>{done ? "You sent" : "Sending"}</span><b>{sent} from your wallet</b></div>
+          ) : (
             <>
-              <div className="xc-row"><span>Send exactly</span><b>{order.inAmount} {order.inSymbol}</b></div>
-              <div className="xc-row xc-addr"><span>to deposit address</span>
+              <div className="xc-row"><span>Send exactly</span><b>{sent}</b></div>
+              <div className="xc-row xc-addr"><span>to this one-time deposit address</span>
                 <button type="button" className="xc-copy mono-sm" onClick={() => copy(order.depositAddress)}>{short(order.depositAddress, 14)} ⧉</button>
               </div>
               {order.depositTag && <div className="xc-row"><span>memo / tag (required!)</span><b>{order.depositTag}</b></div>}
             </>
-          ) : (
-            <div className="xc-row"><span>On-chain swap</span><b>{order.inAmount} {order.inSymbol} submitted from your wallet</b></div>
           )}
-          <div className="xc-row"><span>you'll receive</span><b>≈ {order.outAmount} {order.outSymbol}</b></div>
+          <div className="xc-row"><span>{done ? "You received" : "You'll receive"}</span><b>≈ {recv}</b></div>
           <div className="xc-row"><span>status</span><b>{xchainStatusLabel(status)}</b></div>
-          <div className="xc-row dim"><span>order</span><span className="mono-sm">{order.houdiniId}{order.expires ? ` · deposit before ${new Date(order.expires).toLocaleTimeString()}` : ""}</span></div>
-          {status === "SWAP_COMPLETED" && order.toSherwood && (
+          <div className="xc-row dim"><span>order</span><span className="mono-sm">{order.houdiniId}{!isDex && !xchainDone(status) && order.expires ? ` · deposit before ${new Date(order.expires).toLocaleTimeString()}` : ""}</span></div>
+          {done && order.toSherwood && (
             <p className="xc-next mono-sm">✓ Landed on Base. Open your <a href="#/">Desk</a> — the Relay bridge pulls it into Robinhood Chain and shields it.</p>
           )}
           <button className="btn ghost sm" onClick={clearOrder}>{xchainDone(status) ? "New private route" : "Hide (order keeps running)"}</button>
