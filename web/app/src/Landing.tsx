@@ -13,17 +13,18 @@ export function Landing({ onConnect, busy }: { onConnect: () => void; busy: bool
               <span className="em">no trace.</span>
             </h1>
             <p className="lede">
-              Shield your assets, swap through public liquidity, and settle on Robinhood Chain —
-              with zero-knowledge privacy and provable compliance.
+              Shield your assets, swap through public liquidity, and arrive from any of 100 chains —
+              with zero-knowledge privacy and provable compliance on Robinhood Chain.
             </p>
             <div className="cta">
               <button className="btn" onClick={onConnect} disabled={busy}>Launch app</button>
-              <a className="btn ghost" href="#how">How it works</a>
+              <a className="btn ghost" href="#/woodie">Meet WOODIE 🌲</a>
             </div>
             <div className="trust">
               <div className="t"><b>Groth16</b>zero-knowledge</div>
+              <div className="t"><b>100+ chains</b>private route in/out</div>
               <div className="t"><b>Uniswap v2/v3/v4</b>public liquidity</div>
-              <div className="t"><b>ERC-8004</b>on Robinhood Chain</div>
+              <div className="t"><b>ERC-8004</b>verified AI copilot</div>
             </div>
           </div>
 
@@ -189,19 +190,19 @@ export function Landing({ onConnect, busy }: { onConnect: () => void; busy: bool
               <p>Shielded swaps auto-routed through WETH across Uniswap v2/v3/v4, plus $SWOOD live.</p>
             </div>
             <div className="rm-item">
-              <span className="rm-mark">Next</span>
-              <h4>List more tokens</h4>
-              <p>Expand the shieldable + tradable asset set across the Robinhood Chain ecosystem.</p>
+              <span className="rm-mark live">Live</span>
+              <h4>WOODIE — AI copilot</h4>
+              <p>Shield, swap privately, quote and bridge in plain language. ERC-8004 verified agent; you sign everything yourself.</p>
             </div>
             <div className="rm-item">
-              <span className="rm-mark live">Beta</span>
-              <h4>Private Bridge</h4>
-              <p>Exit Robinhood Chain to any of ~68 chains — unshielded via the relayer so it's unlinked from your shielded pool, then bridged out via Relay.</p>
+              <span className="rm-mark live">Live</span>
+              <h4>Private Route — 100+ chains</h4>
+              <p>Arrive from or leave to BTC, XMR, SOL &amp; 1000+ tokens via multi-hop CEX routing. The trail breaks en route.</p>
             </div>
             <div className="rm-item">
               <span className="rm-mark">Soon</span>
-              <h4>Optimizing UI</h4>
-              <p>Faster in-browser proving, cleaner flows, and sharper live quotes.</p>
+              <h4>Community liquidity</h4>
+              <p>Uniswap-style SWOOD/ETH pools on Sherwood's own AMM, with incentives via Points.</p>
             </div>
             <div className="rm-item">
               <span className="rm-mark live">Live</span>
