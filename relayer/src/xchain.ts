@@ -16,7 +16,7 @@ import { IncomingMessage, ServerResponse } from "node:http";
 import WebSocket from "ws";
 
 const HOUDINI = "https://api-partner.houdiniswap.com/v2";
-const HOUDINI_WS = "wss://partner-api.houdiniswap.com/v2/ws";
+const HOUDINI_WS = "wss://api-partner.houdiniswap.com/v2/ws"; // docs say partner-api.* but that host is NXDOMAIN — the REST host serves the WS
 const ANYSWAP = process.env.ANYSWAP_BASE_URL ?? "https://anyswap-api-docs-593632042838.europe-west4.run.app";
 
 const houdiniAuth = () => {
@@ -145,12 +145,26 @@ export async function handleXchain(req: IncomingMessage, res: ServerResponse, cl
 
     if (req.method === "POST" && path === "/xchain/quote") {
       const b = await readBody(req);
+      // Houdini's free tier allows only 50 quotes/DAY — serve repeats from a 5-minute cache.
+      const qKey = `q:${JSON.stringify([b.provider, b.from, b.to, b.amount, b.fixed ?? false, b.refundAddress ?? "", b.send, b.receive, b.sendNetwork, b.receiveNetwork])}`;
+      const hit = cache.get(qKey);
+      if (hit && Date.now() - hit.at < 5 * 60_000) {
+        res.writeHead(hit.status, { "content-type": "application/json", "access-control-allow-origin": "*", "x-cache": "hit" });
+        res.end(hit.body);
+        return true;
+      }
+      const cacheOk = async (r: Response) => {
+        const text = await r.text();
+        if (r.ok) cache.set(qKey, { at: Date.now(), body: text, status: r.status });
+        res.writeHead(r.status, { "content-type": "application/json", "access-control-allow-origin": "*" });
+        res.end(text);
+      };
       if (b.provider === "anyswap") {
         const key = anyswapKey();
         if (!key) { json(res, 503, { error: "anyswap not configured" }); return true; }
         const pass = new URLSearchParams();
         for (const k of ["send", "receive", "amount", "sendNetwork", "receiveNetwork"]) if (b[k] != null) pass.set(k, String(b[k]));
-        await upstream(res, await fetch(`${ANYSWAP}/api/v1/anyswap/rate?${pass}`, { headers: { "x-api-key": key } }));
+        await cacheOk(await fetch(`${ANYSWAP}/api/v1/anyswap/rate?${pass}`, { headers: { "x-api-key": key } }));
         return true;
       }
       const auth = houdiniAuth();
@@ -160,7 +174,7 @@ export async function handleXchain(req: IncomingMessage, res: ServerResponse, cl
         if (b[k] != null) pass.set(k, String(b[k]));
       }
       if (Array.isArray(b.types)) for (const t of b.types) pass.append("types", String(t));
-      await upstream(res, await fetch(`${HOUDINI}/quotes?${pass}`, { headers: { authorization: auth, ...complianceHeaders(req, clientIp) } }));
+      await cacheOk(await fetch(`${HOUDINI}/quotes?${pass}`, { headers: { authorization: auth, ...complianceHeaders(req, clientIp) } }));
       return true;
     }
 
