@@ -816,6 +816,14 @@ html, body, #root { max-width: 100%; }
 .xr-item .xr-tokmeta b em { font-style: normal; font-weight: 500; color: var(--moon-dim); margin-left: 6px; font-size: 13.5px; }
 .xr-item .xr-tokmeta i { max-width: 280px; font-size: 12.5px; }
 
+/* fixed-rate toggle */
+.xr-fixedrow { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.xr-fixed { display: inline-flex; align-items: center; gap: 9px; cursor: pointer; background: var(--covert); border: 1px solid var(--line); border-radius: 12px; padding: 9px 13px; color: var(--moon-dim); font-size: 13.5px; font-weight: 500; transition: all 0.15s; }
+.xr-fixed .xr-fixed-dot { width: 14px; height: 14px; border-radius: 5px; border: 1.5px solid var(--line-2); transition: all 0.15s; }
+.xr-fixed.on { color: var(--moon); border-color: rgba(198,244,50,0.4); }
+.xr-fixed.on .xr-fixed-dot { background: var(--lime); border-color: var(--lime); }
+.xr-badge.fixedb { margin-left: 6px; background: rgba(198,244,50,0.08); border-color: rgba(198,244,50,0.3); color: var(--lime); }
+
 /* routes panel */
 .xr-routes { display: flex; flex-direction: column; gap: 10px; }
 .xr-rhead { display: flex; justify-content: space-between; align-items: center; gap: 10px; }

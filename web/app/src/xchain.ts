@@ -30,7 +30,7 @@ export const X_ASSETS: XAsset[] = [
 export interface XQuote {
   quoteId: string; type: "private" | "standard" | "dex"; swap?: string; swapName?: string;
   amountIn: number; amountOut: number; amountInUsd?: number; amountOutUsd?: number; duration?: number;
-  min?: number; max?: number;
+  min?: number; max?: number; fixed?: boolean; validUntil?: string;
 }
 export interface XOrder {
   houdiniId: string; depositAddress: string; depositTag?: string | null;
@@ -86,9 +86,12 @@ export async function xchainQuote(net: NetworkConfig, fromId: string, toId: stri
   return { private: best("private"), standard: best("standard") };
 }
 
-/** ALL routes for a pair (the multichain routes panel), throws with the API's message on no-route. */
-export async function xchainQuotesAll(net: NetworkConfig, fromId: string, toId: string, amount: number): Promise<XQuote[]> {
-  const j = await req(net, "/quote", { method: "POST", body: JSON.stringify({ provider: "houdini", amount, from: fromId, to: toId }) });
+/** ALL routes for a pair (the multichain routes panel), throws with the API's message on no-route.
+ *  opts.fixed locks the rate at quote time (Houdini then requires refundAddress on create). */
+export async function xchainQuotesAll(net: NetworkConfig, fromId: string, toId: string, amount: number, opts?: { fixed?: boolean; refundAddress?: string }): Promise<XQuote[]> {
+  const body: Record<string, unknown> = { provider: "houdini", amount, from: fromId, to: toId };
+  if (opts?.fixed) { body.fixed = true; if (opts.refundAddress) body.refundAddress = opts.refundAddress; }
+  const j = await req(net, "/quote", { method: "POST", body: JSON.stringify(body) });
   return ((j.quotes ?? []) as XQuote[]).filter((q) => q.amountOut > 0);
 }
 
@@ -106,12 +109,30 @@ export async function xchainTokenSearch(net: NetworkConfig, term: string, opts?:
   }));
 }
 
-/** Create the exchange; `addressTo` receives the funds (for the IN leg: your address on Base). */
-export const xchainCreate = (net: NetworkConfig, quoteId: string, addressTo: string): Promise<XOrder> =>
-  req(net, "/create", { method: "POST", body: JSON.stringify({ provider: "houdini", quoteId, addressTo }) });
+/** Create the exchange; `addressTo` receives the funds. `refundAddress` is REQUIRED for fixed-rate quotes. */
+export const xchainCreate = (net: NetworkConfig, quoteId: string, addressTo: string, refundAddress?: string): Promise<XOrder> =>
+  req(net, "/create", { method: "POST", body: JSON.stringify({ provider: "houdini", quoteId, addressTo, ...(refundAddress ? { refundAddress } : {}) }) });
 
 export const xchainStatus = (net: NetworkConfig, houdiniId: string): Promise<XStatus> =>
   req(net, `/status?provider=houdini&id=${encodeURIComponent(houdiniId)}`);
+
+/** Watch an order live: SSE from the relayer's shared Houdini WebSocket, with an immediate fetch
+ *  and automatic 15s-polling fallback if the stream can't be established. Returns an unsubscribe. */
+export function xchainWatch(net: NetworkConfig, houdiniId: string, onUpdate: (s: XStatus) => void): () => void {
+  let es: EventSource | null = null;
+  let poll: ReturnType<typeof setInterval> | null = null;
+  let stopped = false;
+  const emit = async () => { try { const s = await xchainStatus(net, houdiniId); if (!stopped) onUpdate(s); } catch { /* transient */ } };
+  const startPoll = () => { if (!poll && !stopped) poll = setInterval(emit, 15_000); };
+  emit(); // immediate snapshot
+  try {
+    es = new EventSource(`${base(net)}/events?id=${encodeURIComponent(houdiniId)}`);
+    // any push means "something changed" — re-fetch the canonical REST shape
+    es.onmessage = () => emit();
+    es.onerror = () => { es?.close(); es = null; startPoll(); };
+  } catch { startPoll(); }
+  return () => { stopped = true; es?.close(); if (poll) clearInterval(poll); };
+}
 
 /** Human line for Houdini's displayStatus. */
 export function xchainStatusLabel(s?: string): string {

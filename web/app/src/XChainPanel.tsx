@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { NetworkConfig } from "./config";
 import {
-  ETH_BASE_ID, xchainProviders, xchainQuotesAll, xchainCreate, xchainStatus,
+  ETH_BASE_ID, xchainProviders, xchainQuotesAll, xchainCreate, xchainWatch,
   xchainStatusLabel, xchainDone, xchainValidAddress, xchainTokenSearch,
   type XToken, type XQuote, type XOrder,
 } from "./xchain";
@@ -161,6 +161,9 @@ export function XChainPanel({ net, address, isConnected, onConnect }: {
   const [quoting, setQuoting] = useState(false);
   const [qErr, setQErr] = useState<string | null>(null);
   const [sort, setSort] = useState<"best" | "fastest">("best");
+  const [fixed, setFixed] = useState(false);
+  const [refund, setRefund] = useState("");
+  const [refundOk, setRefundOk] = useState<boolean | null>(null);
   const [selId, setSelId] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -181,14 +184,14 @@ export function XChainPanel({ net, address, isConnected, onConnect }: {
     deb.current = setTimeout(async () => {
       setQuoting(true);
       try {
-        const qs = await xchainQuotesAll(net, from.id, to.id, n);
+        const qs = await xchainQuotesAll(net, from.id, to.id, n, fixed ? { fixed: true, refundAddress: refundOk ? refund.trim() : undefined } : undefined);
         setQuotes(qs);
-        if (!qs.length) setQErr("No route for this pair/amount right now.");
+        if (!qs.length) setQErr(fixed ? "No fixed-rate route for this pair/amount — try floating." : "No route for this pair/amount right now.");
       } catch (e: any) { setQErr(String(e?.message ?? e)); }
       finally { setQuoting(false); }
     }, 700);
     return () => { if (deb.current) clearTimeout(deb.current); };
-  }, [from.id, to.id, amt, net]);
+  }, [from.id, to.id, amt, net, fixed]);
 
   // destination address validation + prefill for EVM-style chains
   useEffect(() => {
@@ -204,21 +207,25 @@ export function XChainPanel({ net, address, isConnected, onConnect }: {
     xchainValidAddress(net, to.chain, address).then((ok) => { if (live && ok) setDest(address); });
     return () => { live = false; };
   }, [to.chain, address]);
+  // fixed-rate refunds land on the SOURCE chain — validate + prefill against from.chain
+  useEffect(() => {
+    const a = refund.trim();
+    if (!fixed || !a) { setRefundOk(a ? null : null); if (!a && fixed && address) { let live = true; xchainValidAddress(net, from.chain, address).then((ok) => { if (live && ok) setRefund(address); }); return () => { live = false; }; } return; }
+    let live = true;
+    xchainValidAddress(net, from.chain, a).then((ok) => { if (live) setRefundOk(ok); });
+    return () => { live = false; };
+  }, [refund, fixed, from.chain, address, net]);
 
-  // poll active order
+  // live order updates (SSE via the relayer's Houdini WebSocket; falls back to polling)
   useEffect(() => {
     if (!order || xchainDone(status)) return;
-    const t = setInterval(async () => {
-      try {
-        const s = await xchainStatus(net, order.houdiniId);
-        setStatus(s.displayStatus);
-        if (s.displayStatus === "SWAP_COMPLETED") toast({ kind: "ok", msg: order.toSherwood
-          ? `Private route done — ${s.outAmount} ${s.outSymbol} landed on Base. Relay it in + shield from your Desk.`
-          : `Private route done — ${s.outAmount} ${s.outSymbol} delivered.` });
-      } catch { /* transient */ }
-    }, 15_000);
-    return () => clearInterval(t);
-  }, [order?.houdiniId, status, net]);
+    return xchainWatch(net, order.houdiniId, (s) => {
+      setStatus(s.displayStatus);
+      if (s.displayStatus === "SWAP_COMPLETED") toast({ kind: "ok", msg: order.toSherwood
+        ? `Private route done — ${s.outAmount} ${s.outSymbol} landed on Base. Relay it in + shield from your Desk.`
+        : `Private route done — ${s.outAmount} ${s.outSymbol} delivered.` });
+    });
+  }, [order?.houdiniId, xchainDone(status), net]);
 
   const sorted = useMemo(() => {
     if (!quotes) return [];
@@ -237,7 +244,7 @@ export function XChainPanel({ net, address, isConnected, onConnect }: {
     if (!sel || !destOk) return;
     setCreating(true);
     try {
-      const o = { ...(await xchainCreate(net, sel.quoteId, dest.trim())), toSherwood };
+      const o = { ...(await xchainCreate(net, sel.quoteId, dest.trim(), sel.fixed ? refund.trim() : undefined)), toSherwood };
       setOrder(o); setStatus(o.displayStatus);
       try { localStorage.setItem(LS_KEY, JSON.stringify(o)); } catch { /* private mode */ }
     } catch (e: any) { setQErr(String(e?.message ?? e)); }
@@ -253,8 +260,9 @@ export function XChainPanel({ net, address, isConnected, onConnect }: {
     : !sel ? "No route — try another pair/amount"
     : !dest.trim() ? "Enter the receiving address"
     : destOk === false ? `Invalid ${to.chain} address`
+    : fixed && !refundOk ? "Enter a refund address (fixed rate)"
     : creating ? "Creating order…"
-    : `Get deposit address — receive ≈ ${fmt(sel.amountOut)} ${to.symbol}`;
+    : `Get deposit address — receive ${sel.fixed ? "exactly" : "≈"} ${fmt(sel.amountOut)} ${to.symbol}`;
 
   if (order) {
     return (
@@ -311,9 +319,23 @@ export function XChainPanel({ net, address, isConnected, onConnect }: {
         <input className={`xc-payout mono-sm ${destOk === false ? "bad" : ""}`}
           placeholder={`Receiving ${to.symbol} address (on ${to.chain})`}
           value={dest} onChange={(e) => setDest(e.target.value)} />
+        <div className="xr-fixedrow">
+          <button type="button" className={`xr-fixed ${fixed ? "on" : ""}`} aria-pressed={fixed} onClick={() => setFixed((f) => !f)}>
+            <span className="xr-fixed-dot" aria-hidden />Fixed rate — output guaranteed
+          </button>
+          {sel?.fixed && sel.validUntil && <span className="mono-sm muted">locks until {new Date(sel.validUntil).toLocaleTimeString()}</span>}
+        </div>
+        {fixed && (
+          <>
+            <input className={`xc-payout mono-sm ${refundOk === false ? "bad" : ""}`}
+              placeholder={`Refund address on ${from.chain} (required for fixed rate)`}
+              value={refund} onChange={(e) => setRefund(e.target.value)} />
+            {refundOk === false && <p className="xc-err mono-sm">Not a valid {from.chain} address.</p>}
+          </>
+        )}
         {qErr && <p className="xc-err mono-sm">{qErr}</p>}
         {!isConnected && !dest && <button className="btn ghost block" onClick={onConnect}>Connect wallet to prefill (optional)</button>}
-        <button className="btn block" disabled={!sel || !destOk || creating || quoting} onClick={create}>{cta}</button>
+        <button className="btn block" disabled={!sel || !destOk || creating || quoting || (fixed && !refundOk)} onClick={create}>{cta}</button>
       </section>
 
       {/* ---- routes ---- */}
@@ -336,7 +358,10 @@ export function XChainPanel({ net, address, isConnected, onConnect }: {
             {shown.map((q) => (
               <button key={q.quoteId} type="button" className={`xr-route ${q.type} ${sel?.quoteId === q.quoteId ? "sel" : ""}`} onClick={() => setSelId(q.quoteId)}>
                 <div className="xr-rtop">
-                  <span className={`xr-badge ${q.type}`}>{TYPE_BADGE[q.type] ?? q.type}</span>
+                  <span>
+                    <span className={`xr-badge ${q.type}`}>{TYPE_BADGE[q.type] ?? q.type}</span>
+                    {q.fixed && <span className="xr-badge fixedb">Fixed</span>}
+                  </span>
                   {sel?.quoteId === q.quoteId && <span className="xr-check" aria-hidden>✓</span>}
                 </div>
                 <div className="xr-ramt">{fmt(q.amountOut)} <em>{to.symbol}</em></div>

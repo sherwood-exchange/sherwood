@@ -13,8 +13,10 @@
 // forward the real client values. AnySwap requires ipAddress in create bodies — injected here.
 // No keys configured → 503 with a clear reason, so the UI can hide the feature.
 import { IncomingMessage, ServerResponse } from "node:http";
+import WebSocket from "ws";
 
 const HOUDINI = "https://api-partner.houdiniswap.com/v2";
+const HOUDINI_WS = "wss://partner-api.houdiniswap.com/v2/ws";
 const ANYSWAP = process.env.ANYSWAP_BASE_URL ?? "https://anyswap-api-docs-593632042838.europe-west4.run.app";
 
 const houdiniAuth = () => {
@@ -66,6 +68,40 @@ async function cachedGet(res: ServerResponse, url: string, headers: Record<strin
   res.end(text);
 }
 
+// ---- live order updates: ONE authenticated WS to Houdini, fanned out to browsers via SSE ----
+// (browser WebSocket can't send the Authorization header Houdini requires at handshake, and the
+// keys must never reach the browser anyway — so the relayer holds the socket and re-broadcasts.)
+type SseClient = { houdiniId: string; res: ServerResponse };
+const sseClients = new Set<SseClient>();
+let ws: WebSocket | null = null;
+let wsBackoff = 5_000;
+
+function ensureWs() {
+  const auth = houdiniAuth();
+  if (!auth || ws) return;
+  const sock = new WebSocket(HOUDINI_WS, { headers: { authorization: auth } });
+  ws = sock;
+  sock.on("open", () => { wsBackoff = 5_000; sock.send(JSON.stringify({ type: "subscribe" })); });
+  sock.on("message", (raw) => {
+    let m: any;
+    try { m = JSON.parse(String(raw)); } catch { return; }
+    if (m?.type === "ping") { try { sock.send(JSON.stringify({ type: "pong" })); } catch { /* closing */ } return; }
+    if (m?.type !== "order_update" || !m.data?.houdiniId) return;
+    const payload = `data: ${JSON.stringify(m.data)}\n\n`;
+    for (const c of sseClients) if (c.houdiniId === m.data.houdiniId) { try { c.res.write(payload); } catch { /* gone */ } }
+  });
+  const reopen = () => {
+    if (ws !== sock) return;
+    ws = null;
+    if (sseClients.size > 0) setTimeout(ensureWs, wsBackoff);
+    wsBackoff = Math.min(wsBackoff * 2, 120_000);
+  };
+  sock.on("close", reopen);
+  sock.on("error", () => { try { sock.close(); } catch { /* already */ } reopen(); });
+}
+// keep browsers' SSE connections alive through proxies
+setInterval(() => { for (const c of sseClients) { try { c.res.write(": hb\n\n"); } catch { /* gone */ } } }, 25_000).unref();
+
 /** Route an /xchain/* request. Returns true if handled. `clientIp` comes from the server's
  *  trust-proxy-aware resolver so Houdini sees the real user, not our VPS. */
 export async function handleXchain(req: IncomingMessage, res: ServerResponse, clientIp: string): Promise<boolean> {
@@ -74,6 +110,26 @@ export async function handleXchain(req: IncomingMessage, res: ServerResponse, cl
   const q = new URLSearchParams(qs);
   try {
     if (req.method === "GET" && path === "/xchain/providers") { json(res, 200, providers()); return true; }
+
+    // live order updates over SSE (backed by the shared Houdini WS)
+    if (req.method === "GET" && path === "/xchain/events") {
+      const id = q.get("id") ?? "";
+      if (!/^[A-Za-z0-9_-]{1,64}$/.test(id)) { json(res, 400, { error: "bad id" }); return true; }
+      if (!houdiniAuth()) { json(res, 503, { error: "houdini not configured" }); return true; }
+      res.writeHead(200, {
+        "content-type": "text/event-stream",
+        "cache-control": "no-cache",
+        "access-control-allow-origin": "*",
+        connection: "keep-alive",
+        "x-accel-buffering": "no",
+      });
+      res.write(": connected\n\n");
+      const client: SseClient = { houdiniId: id, res };
+      sseClients.add(client);
+      ensureWs();
+      req.on("close", () => sseClients.delete(client));
+      return true;
+    }
 
     // ---- Houdini catalog (needs auth even to read) ----
     if (req.method === "GET" && (path === "/xchain/chains" || path === "/xchain/tokens")) {

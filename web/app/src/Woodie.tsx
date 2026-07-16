@@ -12,7 +12,7 @@ import { quoteRoute } from "./routing";
 import { relayChains, relayQuote } from "./relay";
 import { quotePublic, resolveSpoke, isHub, NATIVE as AGG_NATIVE, type AggToken } from "./aggregator";
 import { AGG_ABI, spokeArg } from "./PublicSwap";
-import { X_ASSETS, ETH_BASE_ID, xchainQuote, xchainCreate, xchainStatus, xchainStatusLabel, xchainDone, xchainValidAddress, type XQuote, type XOrder } from "./xchain";
+import { X_ASSETS, ETH_BASE_ID, xchainQuote, xchainCreate, xchainWatch, xchainStatusLabel, xchainDone, xchainValidAddress, type XQuote, type XOrder } from "./xchain";
 import { TokenAvatar } from "./TokenUI";
 import { toast, dismiss } from "./Toast";
 
@@ -359,11 +359,8 @@ function XChainRampCard({ net, dir, symbol, amount, address }: { net: NetworkCon
 
   useEffect(() => {
     if (!order || xchainDone(status)) return;
-    const t = setInterval(async () => {
-      try { const s = await xchainStatus(net, order.houdiniId); setStatus(s.displayStatus); } catch { /* transient */ }
-    }, 15_000);
-    return () => clearInterval(t);
-  }, [order?.houdiniId, status, net]);
+    return xchainWatch(net, order.houdiniId, (s) => setStatus(s.displayStatus));
+  }, [order?.houdiniId, xchainDone(status), net]);
 
   async function create() {
     if (quote == null || typeof quote === "string" || !destOk) return;
