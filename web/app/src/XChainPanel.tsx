@@ -193,6 +193,15 @@ export function XChainPanel({ net, address, isConnected, onConnect }: {
     setQuotes(null); setQErr(null); setSelId(null); setExpanded(false);
     const n = Number(amt);
     if (!(n > 0)) return;
+    // Robinhood Chain tokens have no CEX rail — cross-chain routes to/from them can't exist.
+    // Point at the gateway instead of burning a doomed quote.
+    const rhCross = (to.chain === "Robinhood") !== (from.chain === "Robinhood");
+    if (rhCross) {
+      setQErr(to.chain === "Robinhood"
+        ? "Robinhood Chain tokens can't be reached cross-chain directly. Route to ETH on Base (the Sherwood gateway), Relay it in from your Desk, then swap on Sherwood."
+        : "Assets on Robinhood Chain leave via the Desk: unshield → Relay OUT to Base, then route ETH on Base → anywhere here.");
+      return;
+    }
     if (deb.current) clearTimeout(deb.current);
     deb.current = setTimeout(async () => {
       setQuoting(true);
