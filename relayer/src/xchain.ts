@@ -203,6 +203,22 @@ export async function handleXchain(req: IncomingMessage, res: ServerResponse, cl
       return true;
     }
 
+    // DEX-route helpers: approval txs for a quote, and tx-hash confirmation after broadcast
+    if (req.method === "POST" && (path === "/xchain/dex/approve" || path === "/xchain/dex/confirm")) {
+      const auth = houdiniAuth();
+      if (!auth) { json(res, 503, { error: "houdini not configured" }); return true; }
+      const b = await readBody(req);
+      const upstreamPath = path.endsWith("approve") ? "/dex/approve" : "/dex/confirmTx";
+      const body: Record<string, unknown> = {};
+      for (const k of ["quoteId", "addressFrom", "id", "txHash"]) if (b[k] != null) body[k] = b[k];
+      await upstream(res, await fetch(`${HOUDINI}${upstreamPath}`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: auth, ...complianceHeaders(req, clientIp) },
+        body: JSON.stringify(body),
+      }));
+      return true;
+    }
+
     if (req.method === "GET" && path === "/xchain/status") {
       const id = q.get("id") ?? "";
       if (!/^[A-Za-z0-9_-]{1,64}$/.test(id)) { json(res, 400, { error: "bad id" }); return true; }

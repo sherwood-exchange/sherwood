@@ -30,12 +30,14 @@ export const X_ASSETS: XAsset[] = [
 export interface XQuote {
   quoteId: string; type: "private" | "standard" | "dex"; swap?: string; swapName?: string;
   amountIn: number; amountOut: number; amountInUsd?: number; amountOutUsd?: number; duration?: number;
-  min?: number; max?: number; fixed?: boolean; validUntil?: string | number;
+  min?: number; max?: number; fixed?: boolean; validUntil?: string | number; requiresApproval?: boolean;
 }
 export interface XOrder {
   houdiniId: string; depositAddress: string; depositTag?: string | null;
   inAmount: number; inSymbol: string; outAmount: number; outSymbol: string;
   expires?: string; eta?: number; displayStatus?: string; status?: number;
+  /** DEX routes: the on-chain call the USER broadcasts (offChain=true → Houdini broadcasts). */
+  metadata?: { offChain?: boolean; to?: string; data?: string; value?: string };
 }
 export interface XStatus {
   houdiniId: string; status: number; displayStatus?: string;
@@ -56,7 +58,7 @@ async function req(net: NetworkConfig, path: string, init?: RequestInit): Promis
 export const xchainProviders = (net: NetworkConfig): Promise<{ houdini: boolean; anyswap: boolean }> =>
   req(net, "/providers");
 
-export interface XChainInfo { shortName: string; name: string; addressValidation?: string; memoNeeded?: boolean }
+export interface XChainInfo { shortName: string; name: string; addressValidation?: string; memoNeeded?: boolean; chainId?: number; kind?: string }
 let CHAINSP: Promise<Map<string, XChainInfo>> | null = null;
 /** Houdini chain metadata by shortName (cached) — used to validate destination addresses per chain. */
 export function xchainChains(net: NetworkConfig): Promise<Map<string, XChainInfo>> {
@@ -64,6 +66,7 @@ export function xchainChains(net: NetworkConfig): Promise<Map<string, XChainInfo
     const m = new Map<string, XChainInfo>();
     for (const c of j.chains ?? j ?? []) m.set(String(c.shortName ?? c.name).toLowerCase(), {
       shortName: c.shortName, name: c.name, addressValidation: c.addressValidation, memoNeeded: !!c.memoNeeded,
+      chainId: c.chainId ?? undefined, kind: c.kind ? String(c.kind).toLowerCase() : undefined,
     });
     return m;
   }).catch((e) => { CHAINSP = null; throw e; });
@@ -109,9 +112,18 @@ export async function xchainTokenSearch(net: NetworkConfig, term: string, opts?:
   }));
 }
 
-/** Create the exchange; `addressTo` receives the funds. `refundAddress` is REQUIRED for fixed-rate quotes. */
-export const xchainCreate = (net: NetworkConfig, quoteId: string, addressTo: string, refundAddress?: string): Promise<XOrder> =>
-  req(net, "/create", { method: "POST", body: JSON.stringify({ provider: "houdini", quoteId, addressTo, ...(refundAddress ? { refundAddress } : {}) }) });
+/** Create the exchange; `addressTo` receives the funds. `refundAddress` is REQUIRED for fixed-rate
+ *  quotes; `addressFrom` is REQUIRED for DEX-type quotes (the wallet that will broadcast). */
+export const xchainCreate = (net: NetworkConfig, quoteId: string, addressTo: string, refundAddress?: string, addressFrom?: string): Promise<XOrder> =>
+  req(net, "/create", { method: "POST", body: JSON.stringify({ provider: "houdini", quoteId, addressTo, ...(refundAddress ? { refundAddress } : {}), ...(addressFrom ? { addressFrom } : {}) }) });
+
+/** DEX route: approval txs / typed-data signatures the wallet must handle before create. */
+export const xchainDexApprove = (net: NetworkConfig, quoteId: string, addressFrom: string): Promise<{ approvals?: Array<{ to: string; data: string; from?: string }>; signatures?: unknown[] }> =>
+  req(net, "/dex/approve", { method: "POST", body: JSON.stringify({ quoteId, addressFrom }) });
+
+/** DEX route: tell Houdini the swap tx was broadcast (or start off-chain execution). */
+export const xchainDexConfirm = (net: NetworkConfig, id: string, txHash?: string): Promise<unknown> =>
+  req(net, "/dex/confirm", { method: "POST", body: JSON.stringify({ id, ...(txHash ? { txHash } : {}) }) });
 
 export const xchainStatus = (net: NetworkConfig, houdiniId: string): Promise<XStatus> =>
   req(net, `/status?provider=houdini&id=${encodeURIComponent(houdiniId)}`);

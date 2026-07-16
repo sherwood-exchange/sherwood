@@ -379,7 +379,7 @@ export function Bridge({ net, walletProvider, address, isConnected, onConnect, t
           <p className="muted mono-sm" style={{ margin: "4px 0 0" }}>Swap anything, anywhere — 1000+ tokens across 100 chains, with the trail broken en route. The Relay bridge lives on your Desk.</p>
         </div>
       </div>
-      <XChainPanel net={net} address={address} isConnected={isConnected} onConnect={onConnect} />
+      <XChainPanel net={net} address={address} isConnected={isConnected} onConnect={onConnect} walletProvider={walletProvider} />
     </div>
   );
 }

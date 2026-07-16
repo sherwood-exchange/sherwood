@@ -4,9 +4,10 @@
 // land there, then Relay in + shield from the Desk. Keys live in the relayer /xchain proxy.
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { NetworkConfig } from "./config";
+import { createWalletClient, custom, defineChain, type Address } from "viem";
 import {
-  ETH_BASE_ID, xchainProviders, xchainQuotesAll, xchainCreate, xchainWatch,
-  xchainStatusLabel, xchainDone, xchainValidAddress, xchainTokenSearch,
+  ETH_BASE_ID, xchainProviders, xchainQuotesAll, xchainCreate, xchainWatch, xchainChains,
+  xchainDexApprove, xchainDexConfirm, xchainStatusLabel, xchainDone, xchainValidAddress, xchainTokenSearch,
   type XToken, type XQuote, type XOrder,
 } from "./xchain";
 import { TokenAvatar } from "./TokenUI";
@@ -161,8 +162,8 @@ function TokenChainButton({ tok, onPick, net, exclude }: { tok: XToken; onPick: 
   );
 }
 
-export function XChainPanel({ net, address, isConnected, onConnect }: {
-  net: NetworkConfig; address?: string; isConnected: boolean; onConnect: () => void;
+export function XChainPanel({ net, address, isConnected, onConnect, walletProvider }: {
+  net: NetworkConfig; address?: string; isConnected: boolean; onConnect: () => void; walletProvider?: any;
 }) {
   const [enabled, setEnabled] = useState<boolean | null>(null);
   const [from, setFrom] = useState<XToken>(POPULAR[1]); // BTC
@@ -257,12 +258,40 @@ export function XChainPanel({ net, address, isConnected, onConnect }: {
 
   async function create() {
     if (!sel || !destOk) return;
-    setCreating(true);
+    setCreating(true); setQErr(null);
     try {
-      const o = { ...(await xchainCreate(net, sel.quoteId, dest.trim(), sel.fixed || fixed ? refund.trim() : undefined)), toSherwood };
+      let o: XOrder & { toSherwood?: boolean };
+      if (sel.type === "dex") {
+        // On-chain route: the USER's wallet broadcasts on the source chain.
+        if (!isConnected || !address || !walletProvider) { onConnect(); setCreating(false); return; }
+        const info = (await xchainChains(net)).get(from.chain.toLowerCase());
+        if (info?.kind !== "evm" || !info.chainId) throw new Error(`On-chain routes from ${from.chain} need a ${from.chain} wallet — pick a CEX route instead.`);
+        const srcChain = defineChain({ id: info.chainId, name: info.name, nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 }, rpcUrls: { default: { http: [] } } });
+        const wc = createWalletClient({ account: address as Address, chain: srcChain, transport: custom(walletProvider) });
+        try { await walletProvider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x" + info.chainId.toString(16) }] }); } catch { /* manual */ }
+        if (sel.requiresApproval) {
+          const { approvals, signatures } = await xchainDexApprove(net, sel.quoteId, address);
+          if (signatures?.length) throw new Error("This route needs typed-data signing we don't support yet — pick another route.");
+          for (const a of approvals ?? []) await wc.sendTransaction({ to: a.to as Address, data: a.data as `0x${string}`, chain: srcChain });
+        }
+        o = { ...(await xchainCreate(net, sel.quoteId, dest.trim(), undefined, address)), toSherwood };
+        if (o.metadata?.offChain) {
+          await xchainDexConfirm(net, o.houdiniId);
+        } else if (o.metadata?.to && o.metadata.data) {
+          const h = await wc.sendTransaction({
+            to: o.metadata.to as Address, data: o.metadata.data as `0x${string}`,
+            value: BigInt(o.metadata.value ?? "0"), chain: srcChain,
+          });
+          await xchainDexConfirm(net, o.houdiniId, h);
+        } else {
+          throw new Error("The provider returned no executable transaction for this route.");
+        }
+      } else {
+        o = { ...(await xchainCreate(net, sel.quoteId, dest.trim(), sel.fixed || fixed ? refund.trim() : undefined)), toSherwood };
+      }
       setOrder(o); setStatus(o.displayStatus);
       try { localStorage.setItem(LS_KEY, JSON.stringify(o)); } catch { /* private mode */ }
-    } catch (e: any) { setQErr(String(e?.message ?? e)); }
+    } catch (e: any) { setQErr(friendlyErr(e)); }
     finally { setCreating(false); }
   }
   function clearOrder() { setOrder(null); setStatus(undefined); localStorage.removeItem(LS_KEY); }
@@ -276,7 +305,8 @@ export function XChainPanel({ net, address, isConnected, onConnect }: {
     : !dest.trim() ? "Enter the receiving address"
     : destOk === false ? `Invalid ${to.chain} address`
     : needRefund && !refundOk ? "Enter a refund address (fixed rate)"
-    : creating ? "Creating order…"
+    : creating ? (sel.type === "dex" ? "Confirm in your wallet…" : "Creating order…")
+    : sel.type === "dex" ? `Execute on-chain swap — receive ≈ ${fmt(sel.amountOut)} ${to.symbol}`
     : `Get deposit address — receive ${sel.fixed ? "exactly" : "≈"} ${fmt(sel.amountOut)} ${to.symbol}`;
 
   if (order) {
@@ -284,11 +314,17 @@ export function XChainPanel({ net, address, isConnected, onConnect }: {
       <section className="card xc" style={{ maxWidth: 560, margin: "0 auto" }}>
         <div className="xc-head"><h3 className="xc-title">Private route in flight</h3></div>
         <div className="xc-order">
-          <div className="xc-row"><span>Send exactly</span><b>{order.inAmount} {order.inSymbol}</b></div>
-          <div className="xc-row xc-addr"><span>to deposit address</span>
-            <button type="button" className="xc-copy mono-sm" onClick={() => copy(order.depositAddress)}>{short(order.depositAddress, 14)} ⧉</button>
-          </div>
-          {order.depositTag && <div className="xc-row"><span>memo / tag (required!)</span><b>{order.depositTag}</b></div>}
+          {order.depositAddress ? (
+            <>
+              <div className="xc-row"><span>Send exactly</span><b>{order.inAmount} {order.inSymbol}</b></div>
+              <div className="xc-row xc-addr"><span>to deposit address</span>
+                <button type="button" className="xc-copy mono-sm" onClick={() => copy(order.depositAddress)}>{short(order.depositAddress, 14)} ⧉</button>
+              </div>
+              {order.depositTag && <div className="xc-row"><span>memo / tag (required!)</span><b>{order.depositTag}</b></div>}
+            </>
+          ) : (
+            <div className="xc-row"><span>On-chain swap</span><b>{order.inAmount} {order.inSymbol} submitted from your wallet</b></div>
+          )}
           <div className="xc-row"><span>you'll receive</span><b>≈ {order.outAmount} {order.outSymbol}</b></div>
           <div className="xc-row"><span>status</span><b>{xchainStatusLabel(status)}</b></div>
           <div className="xc-row dim"><span>order</span><span className="mono-sm">{order.houdiniId}{order.expires ? ` · deposit before ${new Date(order.expires).toLocaleTimeString()}` : ""}</span></div>
