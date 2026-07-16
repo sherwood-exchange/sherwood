@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPublicClient, createWalletClient, custom, http, parseUnits, formatUnits, maxUint256, getAddress, type Address } from "viem";
 import { chainById, ERC20_ABI } from "@sherwood/client";
 import type { NetworkConfig } from "./config";
+import { rpcTransport } from "./config";
 import { quotePublic, resolveSpoke, isHub, type AggToken, type Spoke, NATIVE, WETH } from "./aggregator";
 import { RouteChips, TokenPicker } from "./TokenUI";
 import { toast } from "./Toast";
@@ -61,7 +62,7 @@ export function PublicSwap({ net, walletProvider, address, isConnected, onConnec
   const [working, setWorking] = useState(false);
   const [feeBps, setFeeBps] = useState(30); // $SWOOD-tiered protocol fee (bps), read from the router
 
-  const pc = useMemo(() => createPublicClient({ chain: chainById(net.chainId), transport: http(net.rpcUrl) }), [net]);
+  const pc = useMemo(() => createPublicClient({ chain: chainById(net.chainId), transport: rpcTransport(net) }), [net]);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Keep local `status` for the in-button "Approving…/Swapping…" label, but surface it as a toast.
   const notify = (s: St) => { setStatus(s); if (s) toast({ id: "swap", kind: s.kind === "err" ? "error" : s.kind, msg: s.msg, hash: s.hash, explorer: net.explorer }); };

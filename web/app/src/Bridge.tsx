@@ -8,6 +8,7 @@ import { createWalletClient, createPublicClient, custom, http, defineChain, pars
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { chainById, ERC20_ABI } from "@sherwood/client";
 import type { NetworkConfig, TokenInfo } from "./config";
+import { rpcTransport } from "./config";
 import { relayChains, relayQuote, relayStatus, type RelayChain, type RelayQuote, type RelayTx } from "./relay";
 import { TokenPicker, TokenAvatar } from "./TokenUI";
 import { toast, dismiss } from "./Toast";
@@ -95,9 +96,9 @@ export function Bridge({ net, walletProvider, address, isConnected, onConnect, t
       setWorking(true);
       setStatus({ kind: "busy", msg: "Recovering funds from the temporary address…" });
       const rhChain = chainById(RH);
-      const pc = createPublicClient({ chain: rhChain, transport: http(net.rpcUrl) });
+      const pc = createPublicClient({ chain: rhChain, transport: rpcTransport(net) });
       const e = privateKeyToAccount(pendingEph.pk);
-      const ewc = createWalletClient({ account: e, chain: rhChain, transport: http(net.rpcUrl) });
+      const ewc = createWalletClient({ account: e, chain: rhChain, transport: rpcTransport(net) });
       const tk = pendingEph.token;
       const tokBal = (await pc.readContract({ address: tk.address as Address, abi: ERC20_ABI, functionName: "balanceOf", args: [e.address as Address] })) as bigint;
       if (tokBal > 0n) { const h = await ewc.writeContract({ address: tk.address as Address, abi: TRANSFER_ABI, functionName: "transfer", args: [address as Address, tokBal] }); await pc.waitForTransactionReceipt({ hash: h }); }
@@ -205,13 +206,13 @@ export function Bridge({ net, walletProvider, address, isConnected, onConnect, t
    *  to your identity or your shielded pool. */
   async function bridgeOutEphemeral(human: string) {
     const rhChain = chainById(RH);
-    const pc = createPublicClient({ chain: rhChain, transport: http(net.rpcUrl) });
+    const pc = createPublicClient({ chain: rhChain, transport: rpcTransport(net) });
     const pk = generatePrivateKey();
     const e = privateKeyToAccount(pk);
     // Persist the throwaway key for the flow's duration so a tab reload can't strand funds at
     // the temporary address (cleared on success). It only ever holds the in-flight bridge amount.
     localStorage.setItem("sw-bridge-eph", JSON.stringify({ pk, address: e.address, token, ts: Date.now() }));
-    const ewc = createWalletClient({ account: e, chain: rhChain, transport: http(net.rpcUrl) });
+    const ewc = createWalletClient({ account: e, chain: rhChain, transport: rpcTransport(net) });
 
     // 1) relayer seeds gas to the fresh address (unlinkable source)
     setStatus({ kind: "busy", msg: "Step 1/4 — seeding gas to a fresh address…" });
@@ -254,7 +255,7 @@ export function Bridge({ net, walletProvider, address, isConnected, onConnect, t
         const human = `${amt} → ${sym} on Robinhood Chain (shielded)`;
         // record RH wallet balance before delivery — read via RH's own RPC (the wallet's active
         // chain changes to the source chain during the bridge, so custom(walletProvider) would misread).
-        const rhpc = createPublicClient({ chain: chainById(RH), transport: http(net.rpcUrl) });
+        const rhpc = createPublicClient({ chain: chainById(RH), transport: rpcTransport(net) });
         const balBefore = token.native
           ? await rhpc.getBalance({ address: address as Address })
           : (await rhpc.readContract({ address: token.address, abi: ERC20_ABI, functionName: "balanceOf", args: [address as Address] })) as bigint;

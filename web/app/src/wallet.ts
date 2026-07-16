@@ -1,7 +1,7 @@
 // Wallet connection + deterministic Sherwood account derivation.
 import { createWalletClient, createPublicClient, custom, http, keccak256, hexToBytes, type Address } from "viem";
 import { Keypair, chainById } from "@sherwood/client";
-import { accountMessage, type NetworkConfig } from "./config";
+import { accountMessage, rpcTransport, type NetworkConfig } from "./config";
 
 declare global {
   interface Window {
@@ -33,7 +33,7 @@ export async function connectWithProvider(net: NetworkConfig, provider: any, add
     /* user can switch manually */
   }
 
-  const publicClient = createPublicClient({ chain, transport: http(net.rpcUrl) });
+  const publicClient = createPublicClient({ chain, transport: rpcTransport(net) }) as ReturnType<typeof createPublicClient>;
 
   const signature = await walletClient.signMessage({ account: address, message: accountMessage(net) });
   const seed = hexToBytes(keccak256(signature));
@@ -58,7 +58,7 @@ export async function connect(net: NetworkConfig): Promise<Connection> {
     /* user can switch manually */
   }
 
-  const publicClient = createPublicClient({ chain, transport: http(net.rpcUrl) });
+  const publicClient = createPublicClient({ chain, transport: rpcTransport(net) }) as ReturnType<typeof createPublicClient>;
 
   // derive a stable seed from a signature — never leaves the browser
   const signature = await walletClient.signMessage({ account: address, message: accountMessage(net) });

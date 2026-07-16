@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createPublicClient, createWalletClient, custom, http, parseUnits, formatUnits, maxUint256, type Address } from "viem";
 import { chainById, ERC20_ABI } from "@sherwood/client";
 import type { NetworkConfig } from "./config";
+import { rpcTransport } from "./config";
 import { toast, dismiss } from "./Toast";
 
 type St = { kind: "ok" | "err" | "busy"; msg: string; hash?: string } | null;
@@ -35,7 +36,7 @@ export function Stake({ net, walletProvider, address, isConnected, onConnect }: 
   const [total, setTotal] = useState(0n);
   const [working, setWorking] = useState(false);
   const [tick, setTick] = useState(0);
-  const pc = useMemo(() => createPublicClient({ chain: chainById(net.chainId), transport: http(net.rpcUrl) }), [net]);
+  const pc = useMemo(() => createPublicClient({ chain: chainById(net.chainId), transport: rpcTransport(net) }), [net]);
   const staking = net.swoodStaking;
   const setStatus = (s: St) => { if (s) toast({ id: "stake", kind: s.kind === "err" ? "error" : s.kind, msg: s.msg, hash: s.hash, explorer: net.explorer }); else dismiss("stake"); };
 

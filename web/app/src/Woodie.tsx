@@ -8,6 +8,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPublicClient, createWalletClient, custom, http, parseUnits, parseEther, formatUnits, getAddress, maxUint256, type Address } from "viem";
 import { chainById, ERC20_ABI } from "@sherwood/client";
 import type { NetworkConfig, TokenInfo } from "./config";
+import { rpcTransport } from "./config";
 import { quoteRoute } from "./routing";
 import { relayChains, relayQuote } from "./relay";
 import { quotePublic, resolveSpoke, isHub, NATIVE as AGG_NATIVE, type AggToken } from "./aggregator";
@@ -232,7 +233,7 @@ function QuoteCard({ net, action, tokenBySymbol }: { net: NetworkConfig; action:
   const [out, setOut] = useState<string | null>(null);
   const [usd, setUsd] = useState<string | null>(null);
   const [err, setErr] = useState(false);
-  const pc = useMemo(() => createPublicClient({ chain: chainOf(net), transport: http(net.rpcUrl) }), [net]);
+  const pc = useMemo(() => createPublicClient({ chain: chainOf(net), transport: rpcTransport(net) }), [net]);
   useEffect(() => {
     let live = true;
     (async () => {
@@ -468,7 +469,7 @@ function ConfirmCard({ action, explorer, ...p }: WoodieProps & { action: Action;
   const { net, isConnected, onConnect, tokenBySymbol } = p;
   const [running, setRunning] = useState(false);
   const [done, setDone] = useState(false);
-  const pc = useMemo(() => createPublicClient({ chain: chainOf(net), transport: http(net.rpcUrl) }), [net]);
+  const pc = useMemo(() => createPublicClient({ chain: chainOf(net), transport: rpcTransport(net) }), [net]);
 
   const summary = describe(action);
   const badSym = summary.symbols.some((s) => !tokenBySymbol(s));

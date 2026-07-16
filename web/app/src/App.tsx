@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { formatUnits, parseUnits, getAddress, createPublicClient, http, type Address } from "viem";
 import { initPoseidon, ERC20_ABI, parseAddress, chainById } from "@sherwood/client";
-import { NETWORKS, DEFAULT_NETWORK, localFromDeploy, type NetworkConfig, type TokenInfo } from "./config";
+import { NETWORKS, DEFAULT_NETWORK, localFromDeploy, type NetworkConfig, type TokenInfo , rpcTransport } from "./config";
 import { connectWithProvider, type Connection } from "./wallet";
 import { useAppKit, useAppKitAccount, useAppKitProvider, useDisconnect, type Provider } from "@reown/appkit/react";
 import { makeClient, ensureApproval, submitSelf, submitRelayed, relayerAddress, quoteSwap, saveCache, isAsp, needsAspApproval, publishAssociationRoot, wrapEth, unwrapEth } from "./sherwood";
@@ -43,6 +43,7 @@ export default function App() {
   const [route, setRoute] = useState<Route>(parseRoute());
   const [amAsp, setAmAsp] = useState(false);
   const [pendingApproval, setPendingApproval] = useState(false);
+  const [syncing, setSyncing] = useState(false);
 
   useEffect(() => {
     initPoseidon();
@@ -115,23 +116,33 @@ export default function App() {
 
   async function refresh(c = conn, cl = client) {
     if (!c || !cl) return;
-    cl.invalidate();
-    await cl.sync();
-    const sh: Record<string, bigint> = {};
+    // 1) wallet balances FIRST — plain RPC reads, visible in ~a second. A fresh shielded
+    //    account replays millions of pool blocks; users were staring at an empty desk until
+    //    that finished ("my balance doesn't show up").
     const cel: Record<string, bigint> = {};
+    await Promise.all(net.tokens.map(async (t) => {
+      if (t.halted) { cel[t.symbol] = 0n; return; }
+      cel[t.symbol] = t.native
+        ? await c.publicClient.getBalance({ address: c.address }) // native ETH, not the WETH ERC20
+        : ((await c.publicClient.readContract({ address: t.address, abi: ERC20_ABI, functionName: "balanceOf", args: [c.address] })) as bigint).valueOf();
+    }));
+    setClear(cel);
+    // 2) then the shielded pool sync (chunked + concurrent), with a visible syncing state
+    setSyncing(true);
+    try {
+      cl.invalidate();
+      await cl.sync();
+    } finally { setSyncing(false); }
+    const sh: Record<string, bigint> = {};
     let notes = 0;
     const countedAssets = new Set<string>();
     for (const t of net.tokens) {
-      if (t.halted) { sh[t.symbol] = 0n; cel[t.symbol] = 0n; continue; }
+      if (t.halted) { sh[t.symbol] = 0n; continue; }
       sh[t.symbol] = cl.balance(t.address);
       const key = t.address.toLowerCase();
       if (!countedAssets.has(key)) { countedAssets.add(key); notes += cl.utxos(t.address).length; } // ETH & WETH share an assetId — count once
-      cel[t.symbol] = t.native
-        ? await c.publicClient.getBalance({ address: c.address }) // native ETH, not the WETH ERC20
-        : ((await c.publicClient.readContract({ address: t.address, abi: ERC20_ABI, functionName: "balanceOf", args: [c.address] })) as bigint);
     }
     setShielded(sh);
-    setClear(cel);
     setNoteCount(notes);
     saveCache(cl, net, c.address); // persist incremental-sync cache
     try {
@@ -435,7 +446,9 @@ export default function App() {
                   {trimAmt(formatUnits(shielded[t.symbol]!, t.decimals), 4)} {t.symbol}
                 </span>
               ))}
-            {Object.values(shielded).every((v) => (v ?? 0n) === 0n) && (
+            {syncing ? (
+              <span className="ds-chip empty"><span className="spin dark" style={{ width: 12, height: 12 }} />Syncing the shielded pool…</span>
+            ) : Object.values(shielded).every((v) => (v ?? 0n) === 0n) && (
               <span className="ds-chip empty">Nothing shielded yet — start below 🛡</span>
             )}
             <a className="ds-chip link" href="#/portfolio">Portfolio →</a>
@@ -789,7 +802,7 @@ function useAmount(token: TokenInfo, v: string): bigint {
 /** Estimated USD value of `amt` of `token`, priced via USDG (≈ $1) through the public quoter.
  *  Returns null while loading or if the token has no route to USDG. */
 function useUsdValue(net: NetworkConfig, token: TokenInfo, amt: string): number | null {
-  const pc = useMemo(() => createPublicClient({ chain: chainById(net.chainId), transport: http(net.rpcUrl) }), [net]);
+  const pc = useMemo(() => createPublicClient({ chain: chainById(net.chainId), transport: rpcTransport(net) }), [net]);
   const [price, setPrice] = useState<number | null>(null);
   useEffect(() => {
     let live = true;

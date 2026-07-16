@@ -141,12 +141,31 @@ export class SherwoodClient {
     await this._sync(false);
   }
 
-  /** getContractEvents over [from, to], paged in bounded windows that adaptively shrink on
-   *  a range/overload error (this RPC rejects wide getLogs windows) and grow back on success. */
+  /** getContractEvents over [from, to]: the range is cut into coarse windows fetched
+   *  CONCURRENTLY (a fresh account replays ~4.5M blocks — sequential 5k chunks took minutes),
+   *  and each window internally shrinks adaptively when the RPC balks at a wide getLogs. */
   private async fetchEventsChunked(eventName: string, from: bigint, to: bigint): Promise<any[]> {
+    const WINDOW = 25_000n, CONC = 5;
+    const windows: Array<[bigint, bigint]> = [];
+    for (let lo = from; lo <= to; lo += WINDOW) windows.push([lo, lo + WINDOW - 1n > to ? to : lo + WINDOW - 1n]);
+    const out: any[][] = new Array(windows.length);
+    let next = 0;
+    const worker = async () => {
+      for (;;) {
+        const i = next++;
+        if (i >= windows.length) return;
+        out[i] = await this.fetchWindow(eventName, windows[i][0], windows[i][1]);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(CONC, windows.length) }, worker));
+    return out.flat();
+  }
+
+  /** One window, sequential-adaptive: try the full span, halve on a range/overload error. */
+  private async fetchWindow(eventName: string, from: bigint, to: bigint): Promise<any[]> {
     const out: any[] = [];
     let lo = from;
-    let span = 5000n; // proven-safe window on this RPC; adapts down if a node still balks
+    let span = to - from + 1n;
     while (lo <= to) {
       let hi = lo + span - 1n;
       if (hi > to) hi = to;
@@ -154,7 +173,6 @@ export class SherwoodClient {
         const logs = await this.client.getContractEvents({ address: this.pool, abi: SHERWOOD_ABI, eventName: eventName as any, fromBlock: lo, toBlock: hi });
         out.push(...(logs as any[]));
         lo = hi + 1n;
-        if (span < 5000n) span = span * 2n > 5000n ? 5000n : span * 2n; // recover window size
       } catch (err) {
         if (span <= 1n) throw err; // already at a single block — a real failure, surface it
         span = span / 2n; // shrink and retry the same lo

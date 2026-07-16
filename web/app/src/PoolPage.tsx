@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPublicClient, createWalletClient, custom, http, parseUnits, parseEther, formatUnits, formatEther, maxUint256, type Address } from "viem";
 import { chainById, ERC20_ABI } from "@sherwood/client";
 import type { NetworkConfig } from "./config";
+import { rpcTransport } from "./config";
 import { quoteRoute } from "./routing";
 import { TokenAvatar } from "./TokenUI";
 import { toast } from "./Toast";
@@ -51,7 +52,7 @@ const readableErr = (e: any): string => {
 export function PoolPage({ net, walletProvider, address, isConnected, onConnect }: {
   net: NetworkConfig; walletProvider: any; address?: string; isConnected: boolean; onConnect: () => void;
 }) {
-  const pc = useMemo(() => createPublicClient({ chain: chainOf(net), transport: http(net.rpcUrl) }), [net]);
+  const pc = useMemo(() => createPublicClient({ chain: chainOf(net), transport: rpcTransport(net) }), [net]);
   const [tab, setTab] = useState<"add" | "remove">("add");
   const [rSwood, setRSwood] = useState(0n); // pair reserves, SWOOD side
   const [rWeth, setRWeth] = useState(0n);

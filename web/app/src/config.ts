@@ -2,6 +2,7 @@
 // For the local demo, paste addresses from deploy/e2e.local.json.
 
 import type { Artifacts } from "@sherwood/client";
+import { fallback, http } from "viem";
 
 export interface TokenInfo {
   symbol: string;
@@ -25,6 +26,8 @@ export interface NetworkConfig {
   label: string;
   chainId: number;
   rpcUrl: string;
+  /** Secondary RPC(s) tried automatically when the primary errors/times out. */
+  rpcFallbacks?: string[];
   pool: `0x${string}`;
   relayerUrl?: string;
   pointsUrl?: string;
@@ -76,6 +79,7 @@ export const NETWORKS: Record<string, NetworkConfig> = {
     // state from here, so default to the VPS CORS proxy (browser -> VPS IP -> Robinhood RPC)
     // which sidesteps the block. Override with VITE_RPC_URL to hit the RPC directly.
     rpcUrl: ENV.VITE_RPC_URL || "http://158.220.120.179:8791",
+    rpcFallbacks: ["https://robinhood-mainnet.g.alchemy.com/v2/SHqZ7P5gqNM0KtXsxzXDA"],
     // from deploy/mainnet.json (npm run mainnet:deploy, 2026-07-11 — multi-DEX executor +
     // tokenized-stock routes; settable swapExecutor so future routes need no pool redeploy)
     pool: "0x6504c957ec52b279667e6836b102a0c2586e919c",
@@ -154,3 +158,9 @@ export function localFromDeploy(d: any): NetworkConfig {
     ],
   };
 }
+
+/** Transport with automatic fallback: primary proxy first, then any configured backups (Alchemy). */
+export const rpcTransport = (net: NetworkConfig) =>
+  net.rpcFallbacks?.length
+    ? fallback([http(net.rpcUrl), ...net.rpcFallbacks.map((u) => http(u))], { rank: false })
+    : http(net.rpcUrl);

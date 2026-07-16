@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createPublicClient, createWalletClient, custom, http, formatUnits, type Address } from "viem";
 import { chainById } from "@sherwood/client";
 import type { NetworkConfig } from "./config";
+import { rpcTransport } from "./config";
 import { toast, dismiss } from "./Toast";
 
 type St = { kind: "ok" | "err" | "busy"; msg: string; hash?: string } | null;
@@ -37,7 +38,7 @@ export function Govern({ net, walletProvider, address, isConnected, onConnect }:
   const [desc, setDesc] = useState("");
   const [working, setWorking] = useState(false);
   const [tick, setTick] = useState(0);
-  const pc = useMemo(() => createPublicClient({ chain: chainById(net.chainId), transport: http(net.rpcUrl) }), [net]);
+  const pc = useMemo(() => createPublicClient({ chain: chainById(net.chainId), transport: rpcTransport(net) }), [net]);
   const gov = net.swoodGovernor;
   const staking = net.swoodStaking;
   const setStatus = (s: St) => { if (s) toast({ id: "govern", kind: s.kind === "err" ? "error" : s.kind, msg: s.msg, hash: s.hash, explorer: net.explorer }); else dismiss("govern"); };
