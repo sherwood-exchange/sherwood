@@ -773,20 +773,39 @@ function fmtUsd(n: number): string {
 
 /** One portfolio row: token badge + name + amount + estimated USD value (Zerion-style). */
 function Holding({ sym, name, amount, decimals, muted, halted, usd, logo }: { sym: string; name?: string; amount: bigint; decimals: number; muted?: boolean; halted?: boolean; usd?: number; logo?: string }) {
+  const [open, setOpen] = useState(false);
+  const human = Number(formatUnits(amount, decimals));
+  const price = usd != null && human > 0 ? usd / human : undefined;
   return (
-    <li className={`holding ${halted ? "halted" : amount === 0n ? "zero" : ""}`}>
-      <TokenAvatar sym={sym} logo={logo} size={36} className="tok-badge" />
-      <span className="holding-meta">
-        <span className="holding-sym">{sym}</span>
-        <span className="holding-name">{halted ? "Deposit & trading halted" : name ?? TOKEN_NAMES[sym] ?? sym}</span>
-      </span>
-      {halted ? (
-        <span className="holding-badge">HALTED</span>
-      ) : (
-        <span className="holding-vals">
-          <span className={`holding-amt ${muted ? "muted" : ""}`}>{formatUnits(amount, decimals)}</span>
-          {amount > 0n && usd != null && <span className="holding-usd">{fmtUsd(usd)}</span>}
+    <li className={`holding ${halted ? "halted" : amount === 0n ? "zero" : ""} ${open ? "open" : ""}`}>
+      <button type="button" className="holding-row" onClick={() => !halted && setOpen((o) => !o)} aria-expanded={open}>
+        <TokenAvatar sym={sym} logo={logo} size={36} className="tok-badge" />
+        <span className="holding-meta">
+          <span className="holding-sym">{sym}</span>
+          <span className="holding-name">{halted ? "Deposit & trading halted" : name ?? TOKEN_NAMES[sym] ?? sym}</span>
         </span>
+        {halted ? (
+          <span className="holding-badge">HALTED</span>
+        ) : (
+          <span className="holding-vals">
+            <span className={`holding-amt ${muted ? "muted" : ""}`}>{trimAmt(formatUnits(amount, decimals))}</span>
+            {amount > 0n && usd != null && <span className="holding-usd">{fmtUsd(usd)}</span>}
+          </span>
+        )}
+      </button>
+      {open && !halted && (
+        <div className="holding-x">
+          <div className="holding-x-rows mono-sm">
+            <span>Balance</span><b>{formatUnits(amount, decimals)} {sym}</b>
+            <span>Price</span><b>{price != null ? fmtUsd(price) : "—"}</b>
+            <span>Value</span><b>{usd != null ? fmtUsd(usd) : "—"}</b>
+          </div>
+          <div className="holding-x-actions">
+            <a className="btn ghost sm" href="#/">{muted ? "Shield" : "Send privately"}</a>
+            <a className="btn ghost sm" href="#/swap">Swap</a>
+            {sym === "SWOOD" && <a className="btn ghost sm" href="#/stake">Stake</a>}
+          </div>
+        </div>
       )}
     </li>
   );

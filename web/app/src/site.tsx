@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Mark } from "./Mark";
 import { NETWORKS, type NetworkConfig } from "./config";
 
@@ -32,6 +32,16 @@ export function Nav({
   right: ReactNode;
   inApp?: boolean;
 }) {
+  // active-route highlight (professional app-nav behavior)
+  const [hash, setHash] = useState(() => location.hash || "#/");
+  useEffect(() => {
+    const on = () => setHash(location.hash || "#/");
+    window.addEventListener("hashchange", on);
+    return () => window.removeEventListener("hashchange", on);
+  }, []);
+  const L = ({ href, children }: { href: string; children: ReactNode }) => (
+    <a className={`link ${hash === href || (href === "#/" && (hash === "" || hash === "#" || hash === "#/")) ? "active" : ""}`} href={href}>{children}</a>
+  );
   return (
     <nav className="nav">
       <a className="brand" href={inApp ? "#/" : "#top"}>
@@ -42,15 +52,15 @@ export function Nav({
         {inApp ? (
           <>
             {/* In-app: only routes that exist here (landing-section anchors don't). */}
-            <a className="link" href="#/">Desk</a>
-            <a className="link" href="#/woodie">WOODIE</a>
-            <a className="link" href="#/swap">Swap</a>
-            <a className="link" href="#/pool">Pool</a>
-            <a className="link" href="#/bridge">Bridge</a>
-            <a className="link" href="#/stake">Stake</a>
-            <a className="link" href="#/govern">Govern</a>
-            <a className="link" href="#/portfolio">Portfolio</a>
-            <a className="link" href="#/points">Points</a>
+            <L href="#/">Desk</L>
+            <L href="#/woodie">WOODIE</L>
+            <L href="#/swap">Swap</L>
+            <L href="#/pool">Pool</L>
+            <L href="#/bridge">Bridge</L>
+            <L href="#/stake">Stake</L>
+            <L href="#/govern">Govern</L>
+            <L href="#/portfolio">Portfolio</L>
+            <L href="#/points">Points</L>
           </>
         ) : (
           <>
