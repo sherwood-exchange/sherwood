@@ -16,12 +16,16 @@ import { toast } from "./Toast";
 const LS_KEY = "sherwood-xchain-order";
 const short = (s: string, n = 10) => (s.length > n * 2 + 2 ? `${s.slice(0, n)}…${s.slice(-6)}` : s);
 const fmt = (n: number, d = 6) => n.toLocaleString("en-US", { maximumFractionDigits: d, useGrouping: false });
-/** Human copy for provider errors — the free-tier rate limit deserves better than raw API text. */
+/** Human copy for provider/wallet errors — never dump raw viem args/calldata at the user. */
 function friendlyErr(e: any): string {
-  const m = String(e?.message ?? e);
+  const m = String(e?.shortMessage ?? e?.message ?? e);
+  if (/user (rejected|denied)|rejected the request|denied transaction/i.test(m)) return "Transaction rejected in your wallet — nothing was sent.";
+  if (/insufficient funds/i.test(m)) return "Insufficient funds for this amount plus gas.";
+  if (/chain.*(mismatch|not configured|unsupported)|switch/i.test(m) && /chain/i.test(m)) return "Couldn't switch your wallet to the source chain — switch manually and retry.";
   const rl = m.match(/tier: .*?Try again in (\d+) seconds/i);
-  if (rl) { const min = Math.ceil(Number(rl[1]) / 60); return `Quote limit reached (provider free tier) — try again in ~${min} min.`; }
-  return m;
+  if (rl) { const min = Math.ceil(Number(rl[1]) / 60); return `Quote limit reached — try again in ~${min} min.`; }
+  const line = m.split("\n")[0];
+  return line.length > 140 ? line.slice(0, 140) + "…" : line;
 }
 /** validUntil arrives as unix SECONDS (not ISO, despite the schema saying string). */
 const fmtLockTime = (v: string | number) => {
