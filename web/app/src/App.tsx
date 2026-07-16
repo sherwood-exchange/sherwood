@@ -15,19 +15,18 @@ import { PublicSwap } from "./PublicSwap";
 import { Bridge } from "./Bridge";
 import { Stake } from "./Stake";
 import { Govern } from "./Govern";
-import { PoolPage } from "./PoolPage";
 import { Woodie } from "./Woodie";
-import { RouteChips, TokenAvatar, TokenPicker } from "./TokenUI";
+import { RouteChips, TokenAvatar, TokenPicker, tokenGradient } from "./TokenUI";
 import { ToastHost, toast, dismiss } from "./Toast";
 
 type Tab = "shield" | "send" | "swap" | "withdraw" | "bridge";
 type Status = { kind: "ok" | "err" | "busy"; msg: string; hash?: string } | null;
-type Route = "points" | "referral" | "portfolio" | "swap" | "bridge" | "stake" | "govern" | "woodie" | "pool" | "";
+type Route = "points" | "referral" | "portfolio" | "swap" | "bridge" | "stake" | "govern" | "woodie" | "";
 
 function parseRoute(): Route {
   const h = (location.hash || "").replace(/^#\/?/, "");
   if (h === "plan") return "woodie"; // legacy deep-link — WOODIE lived at #/plan before the announce
-  return h === "points" || h === "referral" || h === "portfolio" || h === "swap" || h === "bridge" || h === "stake" || h === "govern" || h === "woodie" || h === "pool" ? h : "";
+  return h === "points" || h === "referral" || h === "portfolio" || h === "swap" || h === "bridge" || h === "stake" || h === "govern" || h === "woodie" ? h : "";
 }
 
 export default function App() {
@@ -383,8 +382,6 @@ export default function App() {
         />
       ) : route === "stake" ? (
         <Stake net={net} walletProvider={walletProvider} address={akAddress} isConnected={isConnected} onConnect={doConnect} />
-      ) : route === "pool" ? (
-        <PoolPage net={net} walletProvider={walletProvider} address={akAddress} isConnected={isConnected} onConnect={doConnect} />
       ) : route === "woodie" ? (
         <Woodie
           net={net} walletProvider={walletProvider} address={akAddress} isConnected={isConnected} onConnect={doConnect}
@@ -599,6 +596,7 @@ function PortfolioPage({ net, conn, shielded, clear, noteCount, myAddress, copie
 }) {
   // Estimated USD price per token: quote 1 token → USDG (USDG ≈ $1). Computed on connect.
   const [prices, setPrices] = useState<Record<string, number>>({});
+  const [pfSeg, setPfSeg] = useState<"all" | "shielded" | "wallet">("all");
   useEffect(() => {
     if (!conn) return;
     let alive = true;
@@ -646,81 +644,118 @@ function PortfolioPage({ net, conn, shielded, clear, noteCount, myAddress, copie
   const totalCl = net.tokens.reduce((s, t) => (t.halted ? s : s + (usdOf(t.symbol, clear[t.symbol] ?? 0n, t.decimals) ?? 0)), 0);
   const totalAll = totalSh + totalCl;
 
+  // Uniswap-style table rows: one row per token for the active segment.
+  const rows = shieldedTokens
+    .filter((t) => !t.halted)
+    .map((t) => {
+      const sh = shielded[t.symbol] ?? 0n;
+      const cl = clear[t.symbol] ?? 0n;
+      const amount = pfSeg === "shielded" ? sh : pfSeg === "wallet" ? cl : sh + cl;
+      return { t, amount, usd: usdOf(t.symbol, amount, t.decimals), price: prices[t.symbol] };
+    })
+    .sort((a, b) => (b.usd ?? 0) - (a.usd ?? 0));
+
   return (
-    <div className="app app-narrow">
-      <div className="app-head">
-        <div>
-          <h2 style={{ fontFamily: "var(--display)", fontSize: 26, margin: 0 }}>Portfolio</h2>
-          <p className="muted mono-sm" style={{ margin: "4px 0 0" }}>Your shielded + wallet balances on {net.label}.</p>
+    <div className="app">
+      {/* identity header */}
+      <div className="pf-id">
+        <span className="pf-ava" style={{ backgroundImage: tokenGradient(conn.address) }} />
+        <div className="pf-id-meta">
+          <b>{conn.address.slice(0, 6)}…{conn.address.slice(-4)}</b>
+          <button type="button" className="pf-id-sub" onClick={onCopy} title="Copy your Sherwood shielded address">
+            {copied ? "Copied ✓" : `sherwood ${myAddress.slice(0, 18)}… ⧉`}
+          </button>
         </div>
-        <a className="btn ghost sm" href="#/">← Desk</a>
+        <div className="pf-id-right">
+          <button className="btn ghost sm" onClick={onRefresh} disabled={busy}>↻ Refresh</button>
+          {net.explorer && <a className="btn ghost sm" href={`${net.explorer}/address/${conn.address}`} target="_blank" rel="noreferrer">Explorer ↗</a>}
+        </div>
       </div>
 
-      {/* Uniswap-style value header — one big number, then quick actions. */}
-      <section className="card pf-hero">
-        <span className="pf-hero-label">Total value</span>
-        <span className="pf-hero-total">{fmtUsd(totalAll)}</span>
-        <div className="pf-hero-split">
-          <span className="pf-chip"><em className="pf-dot shielded" />Shielded {fmtUsd(totalSh)}</span>
-          <span className="pf-chip"><em className="pf-dot wallet" />Wallet {fmtUsd(totalCl)}</span>
-        </div>
-        <div className="pf-actions">
-          <a className="pf-action" href="#/"><span className="pf-ico" aria-hidden>↑</span>Send</a>
-          <button className="pf-action" onClick={onCopy}><span className="pf-ico" aria-hidden>↓</span>{copied ? "Copied ✓" : "Receive"}</button>
-          <a className="pf-action" href="#/bridge"><span className="pf-ico" aria-hidden>+</span>Buy</a>
-          <a className="pf-action" href="#/swap"><span className="pf-ico" aria-hidden>⇄</span>Swap</a>
-        </div>
-      </section>
+      <div className="pf-grid">
+        {/* left: value + tokens table */}
+        <div className="pf-main">
+          <div className="pf-hero2">
+            <span className="pf-hero-total">{fmtUsd(totalAll)}</span>
+            <div className="pf-hero-split">
+              <span className="pf-chip"><em className="pf-dot shielded" />Shielded {fmtUsd(totalSh)}</span>
+              <span className="pf-chip"><em className="pf-dot wallet" />Wallet {fmtUsd(totalCl)}</span>
+              <span className="pf-chip">{noteCount} note{noteCount === 1 ? "" : "s"}</span>
+            </div>
+          </div>
 
-      <section className="card" style={{ marginTop: 16 }}>
-        <h2>Your Sherwood address</h2>
-        <p className="hint">Share this so others can send you private notes. It is not your wallet address.</p>
-        <div className="addr-row">
-          <code className="addr mono-sm">{myAddress}</code>
-          <button className="btn ghost sm addr-copy" onClick={onCopy}>{copied ? "Copied ✓" : "Copy"}</button>
+          <div className="pf-tokens-head">
+            <h2>Tokens</h2>
+            <div className="tabs" style={{ margin: 0 }}>
+              {(["all", "shielded", "wallet"] as const).map((s) => (
+                <button key={s} className={`tab ${pfSeg === s ? "active" : ""}`} onClick={() => setPfSeg(s)}>{s[0].toUpperCase() + s.slice(1)}</button>
+              ))}
+            </div>
+          </div>
+          <div className="pf-th2 mono-sm"><span>Token</span><span>Price</span><span>Balance</span><span>Value</span></div>
+          <ul className="holdings pf-table2">
+            {rows.map(({ t, amount, usd, price }) => (
+              <PfRow key={t.symbol} t={t} amount={amount} usd={usd} price={price} seg={pfSeg} />
+            ))}
+          </ul>
         </div>
-      </section>
 
-      <section className="card holdings-card" style={{ marginTop: 16 }}>
-        <div className="holdings-head">
-          <h2>Shielded balances</h2>
-          <span className="card-total">{fmtUsd(totalSh)}</span>
+        {/* right: quick actions + shielded address */}
+        <div className="pf-side">
+          <div className="pf-actions">
+            <a className="pf-action" href="#/"><span className="pf-ico" aria-hidden>↑</span>Send</a>
+            <button className="pf-action" onClick={onCopy}><span className="pf-ico" aria-hidden>↓</span>{copied ? "Copied ✓" : "Receive"}</button>
+            <a className="pf-action" href="#/bridge"><span className="pf-ico" aria-hidden>+</span>Buy</a>
+            <a className="pf-action" href="#/swap"><span className="pf-ico" aria-hidden>⇄</span>Swap</a>
+          </div>
+          <section className="card pf-addr">
+            <h2>Sherwood address</h2>
+            <p className="hint">Share this to receive private notes — it is not your wallet address.</p>
+            <div className="addr-row">
+              <code className="addr mono-sm">{myAddress}</code>
+              <button className="btn ghost sm addr-copy" onClick={onCopy}>{copied ? "Copied ✓" : "Copy"}</button>
+            </div>
+          </section>
+          <section className="card pf-addr">
+            <h2>Activity</h2>
+            <p className="hint">Shielded activity leaves no trace here — that's the point. Public history lives on the explorer.</p>
+          </section>
         </div>
-        <p className="hint">Private — no observer can link these to your address. · {noteCount} note{noteCount === 1 ? "" : "s"}</p>
-        <div className="holdings-th"><span>Token</span><span>Balance · Value</span></div>
-        <ul className="holdings">
-          {shieldedTokens.map((t) => (
-            <Holding key={t.address} sym={t.symbol} name={t.name} amount={shielded[t.symbol] ?? 0n} decimals={t.decimals} halted={t.halted} logo={t.logo} usd={usdOf(t.symbol, shielded[t.symbol] ?? 0n, t.decimals)} />
-          ))}
-        </ul>
-      </section>
-
-      <section className="card holdings-card" style={{ marginTop: 16 }}>
-        <div className="holdings-head">
-          <h2>Wallet balances</h2>
-          <span className="card-total">{fmtUsd(totalCl)}</span>
-        </div>
-        <p className="hint">Unshielded balances in your connected wallet.</p>
-        <div className="holdings-th"><span>Token</span><span>Balance · Value</span></div>
-        <ul className="holdings">
-          {net.tokens.map((t) => (
-            <Holding key={t.symbol} sym={t.symbol} name={t.name} amount={clear[t.symbol] ?? 0n} decimals={t.decimals} muted halted={t.halted} logo={t.logo} usd={usdOf(t.symbol, clear[t.symbol] ?? 0n, t.decimals)} />
-          ))}
-        </ul>
-      </section>
-
-      <section className="card holdings-card" style={{ marginTop: 16 }}>
-        <div className="holdings-head"><h2>Recent activity</h2></div>
-        <p className="hint">Your shielded activity leaves no trace here — that's the point. Public wallet history lives on the explorer.</p>
-        <div className="holdings-actions" style={{ marginTop: 4 }}>
-          <button className="btn ghost sm" onClick={onRefresh} disabled={busy}>↻ Refresh balances</button>
-          {net.explorer && (
-            <a className="btn ghost sm" href={`${net.explorer}/address/${conn.address}`} target="_blank" rel="noreferrer">Wallet history ↗</a>
-          )}
-        </div>
-        <span className="muted mono-sm" style={{ display: "block", marginTop: 12 }}>{relayer ? `relayer ${relayer.slice(0, 8)}…` : "no relayer"} · values est. via USDG</span>
-      </section>
+      </div>
     </div>
+  );
+}
+
+/** Uniswap-style token table row: Token | Price | Balance | Value, click to expand actions. */
+function PfRow({ t, amount, usd, price, seg }: { t: TokenInfo; amount: bigint; usd?: number; price?: number; seg: "all" | "shielded" | "wallet" }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <li className={`holding ${amount === 0n ? "zero" : ""} ${open ? "open" : ""}`}>
+      <button type="button" className="holding-row pf-tr2" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
+        <span className="pf-cell-tok">
+          <TokenAvatar sym={t.symbol} logo={t.logo} size={34} className="tok-badge" />
+          <span className="holding-meta">
+            <span className="holding-sym">{t.symbol}</span>
+            <span className="holding-name">{t.name ?? TOKEN_NAMES[t.symbol] ?? t.symbol}</span>
+          </span>
+        </span>
+        <span className="pf-cell">{price != null ? fmtUsd(price).replace("≈ ", "") : "—"}</span>
+        <span className="pf-cell">{trimAmt(formatUnits(amount, t.decimals))}</span>
+        <span className="pf-cell val">{usd != null ? fmtUsd(usd).replace("≈ ", "") : "—"}</span>
+      </button>
+      {open && (
+        <div className="holding-x">
+          <div className="holding-x-rows mono-sm">
+            <span>Exact balance</span><b>{formatUnits(amount, t.decimals)} {t.symbol}</b>
+          </div>
+          <div className="holding-x-actions">
+            <a className="btn ghost sm" href="#/">{seg === "wallet" ? "Shield" : "Send privately"}</a>
+            <a className="btn ghost sm" href="#/swap">Swap</a>
+            {t.symbol === "SWOOD" && <a className="btn ghost sm" href="#/stake">Stake</a>}
+          </div>
+        </div>
+      )}
+    </li>
   );
 }
 

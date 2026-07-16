@@ -55,7 +55,6 @@ export function Nav({
             <L href="#/">Desk</L>
             <L href="#/woodie">WOODIE</L>
             <L href="#/swap">Swap</L>
-            <L href="#/pool">Pool</L>
             <L href="#/bridge">Bridge</L>
             <L href="#/stake">Stake</L>
             <L href="#/govern">Govern</L>

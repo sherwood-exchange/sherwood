@@ -12,7 +12,7 @@
 import { callCompute, UNIVERSE } from "./planner.js";
 
 // ---- shared Action contract (web executes this) ----
-export type RouteTo = "stake" | "bridge" | "swap" | "govern" | "points" | "pool";
+export type RouteTo = "stake" | "bridge" | "swap" | "govern" | "points";
 export type Action =
   | { kind: "shield"; symbol: string; amount: string }
   | { kind: "private_transfer"; symbol: string; amount: string; to: string }
@@ -61,7 +61,7 @@ function cleanAmount(a: unknown): string | null {
   return Number(s) > 0 ? s : null;
 }
 const is0x = (s: string) => /^0x[0-9a-fA-F]{40}$/.test(s.trim());
-const ROUTES: RouteTo[] = ["stake", "bridge", "swap", "govern", "points", "pool"];
+const ROUTES: RouteTo[] = ["stake", "bridge", "swap", "govern", "points"];
 
 // ================================ LLM engine ================================
 function systemPrompt(): string {
@@ -85,7 +85,7 @@ function systemPrompt(): string {
     '  {"kind":"xchain_quote","symbol":"BTC","amount":"0.01"}            — price bringing an OUTSIDE asset (BTC, XMR, SOL, LTC, DOGE, USDT) into Sherwood via the private cross-chain route\n' +
     '  {"kind":"xchain_out","symbol":"XMR","amount":"0.1"}               — price cashing OUT of Sherwood: amount is ETH (on Base) leaving, symbol is the outside asset received (BTC/XMR/SOL/LTC/DOGE/USDT)\n' +
     '  {"kind":"universe"}                                               — user asks what they can trade/shield here (token list + live liquidity)\n' +
-    '  {"kind":"route","to":"stake|bridge|swap|govern|points|pool","note":"why"} — deep-link a page; do NOT execute here\n' +
+    '  {"kind":"route","to":"stake|bridge|swap|govern|points","note":"why"} — deep-link a page; do NOT execute here\n' +
     '  {"kind":"answer"}                                                — greeting / "what can you do" / how-it-works / explain\n' +
     '  {"kind":"clarify"}                                               — a required detail is missing; ask for it in say\n\n' +
     "RULES:\n" +
@@ -107,7 +107,7 @@ function systemPrompt(): string {
     "- 'What can I trade', 'which tokens do you support', 'list the markets' → universe.\n" +
     "- Staking $SWOOD → route(stake). Bridging / on-ramp / deposit from another chain → route(bridge). " +
     "PUBLIC (non-private) swaps → route(swap). Governance / voting → route(govern). Points / rewards → route(points). " +
-    "Adding/removing SWOOD/ETH liquidity, LP, 'provide liquidity' → route(pool).\n" +
+    "SWOOD/ETH liquidity (LP) is coming soon — answer that it is not live yet.\n" +
     "- A swap is 'shielded_swap' ONLY when the user asks to keep it private/shielded. A plain 'swap X to Y' " +
     "with amount + both tokens → public_swap (executed right here, clearly marked NOT private). If details " +
     "are missing, clarify. Only use route(swap) when the user asks to open/see the Swap page itself.\n" +
@@ -251,7 +251,7 @@ export function ruleChat(message: string): Reply {
   // routing intents (checked before generic "swap")
   if (/\bstake|staking|unstake\b/.test(m)) return { say: "Staking lives on the Stake page — I'll take you there.", action: { kind: "route", to: "stake", note: "stake $SWOOD" } };
   if (/\b(liquidity|liquidit|lp\b|pool(ing)?\b.*(add|provide|join|seed)|(add|provide|seed).*pool)\b/.test(m) && !/\bshielded pool\b/.test(m))
-    return { say: "SWOOD/ETH liquidity lives on the Pool page — LPs earn the 0.30% swap fee.", action: { kind: "route", to: "pool", note: "SWOOD/ETH LP" } };
+    return { say: "SWOOD/ETH liquidity pools are coming soon — not live yet.", action: { kind: "answer" } };
   // bridge with an amount + destination → indicative bridge quote ("bridge 0.05 eth to base")
   {
     const bq = m.match(/bridge\s+([\d.]+)\s*(?:eth\s+)?(?:to|into|→|->)\s+([a-z][a-z0-9 ]{1,30})/);

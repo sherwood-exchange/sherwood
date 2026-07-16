@@ -728,6 +728,31 @@ html, body, #root { max-width: 100%; }
 .woodie-send { flex: 0 0 auto; width: 46px; height: 46px; padding: 0; display: grid; place-items: center; border-radius: 14px; }
 .woodie-foot { text-align: center; margin: 10px 0 0; line-height: 1.5; }
 
+/* ===== Portfolio (Uniswap-style) ===== */
+.pf-id { display: flex; align-items: center; gap: 14px; margin-bottom: 22px; }
+.pf-ava { width: 46px; height: 46px; border-radius: 50%; flex: 0 0 auto; }
+.pf-id-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.pf-id-meta b { font-size: 17px; font-weight: 700; font-family: var(--mono); }
+.pf-id-sub { background: none; border: 0; padding: 0; cursor: pointer; text-align: left; color: var(--moon-dim); font-family: var(--mono); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pf-id-sub:hover { color: var(--lime); }
+.pf-id-right { display: flex; gap: 8px; flex: 0 0 auto; }
+.pf-grid { display: grid; grid-template-columns: 1.5fr 0.9fr; gap: 22px; align-items: start; }
+@media (max-width: 860px) { .pf-grid { grid-template-columns: 1fr; } .pf-id-right { display: none; } }
+.pf-hero2 { display: flex; flex-direction: column; gap: 10px; margin-bottom: 26px; }
+.pf-tokens-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.pf-tokens-head h2 { font-family: var(--sans); font-weight: 700; font-size: 18px; margin: 0; }
+.pf-th2 { display: grid; grid-template-columns: 1.6fr 0.8fr 0.9fr 0.8fr; gap: 10px; padding: 8px 10px; color: var(--moon-dim); border-bottom: 1px solid var(--line); }
+.pf-th2 span:not(:first-child) { text-align: right; }
+.pf-table2 { list-style: none; margin: 0; padding: 0; }
+.pf-tr2 { display: grid !important; grid-template-columns: 1.6fr 0.8fr 0.9fr 0.8fr; gap: 10px; align-items: center; }
+.pf-cell-tok { display: flex; align-items: center; gap: 11px; min-width: 0; }
+.pf-cell { text-align: right; font-variant-numeric: tabular-nums; font-size: 14.5px; color: var(--moon-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pf-cell.val { color: var(--moon); font-weight: 600; }
+.pf-side { display: flex; flex-direction: column; gap: 14px; }
+.pf-side .pf-actions { margin-top: 0; grid-template-columns: repeat(2, 1fr); }
+.pf-addr h2 { font-family: var(--sans); font-size: 16px; font-weight: 700; }
+@media (max-width: 640px) { .pf-th2, .pf-tr2 { grid-template-columns: 1.6fr 1fr 1fr; } .pf-th2 span:nth-child(2), .pf-tr2 .pf-cell:nth-child(2) { display: none; } }
+
 /* ===== Pool page (SWOOD/WETH community liquidity) ===== */
 .pool-stats { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px; color: var(--moon-dim); margin-bottom: 6px; }
 .pool-tok { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; color: var(--moon); flex: 0 0 auto; }

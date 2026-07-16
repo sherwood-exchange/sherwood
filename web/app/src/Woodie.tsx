@@ -24,7 +24,7 @@ const RH_CHAIN_ID = 4663; // Robinhood Chain — the only origin WOODIE bridges 
 const PUB_SLIP_BPS = 100n; // public aggregator pools are deep — 1%, same default as the Swap page
 
 // ---- shared action contract (mirrors agent/src/woodie.ts) ----
-type RouteTo = "stake" | "bridge" | "swap" | "govern" | "points" | "pool";
+type RouteTo = "stake" | "bridge" | "swap" | "govern" | "points";
 type Action =
   | { kind: "shield"; symbol: string; amount: string }
   | { kind: "private_transfer"; symbol: string; amount: string; to: string }
@@ -60,7 +60,7 @@ const readableErr = (e: any): string => {
 };
 
 const EXAMPLES = ["Shield 0.01 ETH", "Private swap 0.005 ETH → AAPL", "Swap 0.01 ETH → USDG", "Price of NVDA", "What can I trade?", "Bridge 0.05 ETH to Base", "My portfolio"];
-const ROUTE_LABEL: Record<RouteTo, string> = { stake: "Stake", bridge: "Bridge", swap: "Swap", govern: "Govern", points: "Points", pool: "Pool" };
+const ROUTE_LABEL: Record<RouteTo, string> = { stake: "Stake", bridge: "Bridge", swap: "Swap", govern: "Govern", points: "Points" };
 
 export interface WoodieProps {
   net: NetworkConfig;
