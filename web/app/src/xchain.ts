@@ -91,9 +91,10 @@ export async function xchainQuote(net: NetworkConfig, fromId: string, toId: stri
 
 /** ALL routes for a pair (the multichain routes panel), throws with the API's message on no-route.
  *  opts.fixed locks the rate at quote time (Houdini then requires refundAddress on create). */
-export async function xchainQuotesAll(net: NetworkConfig, fromId: string, toId: string, amount: number, opts?: { fixed?: boolean; refundAddress?: string }): Promise<XQuote[]> {
+export async function xchainQuotesAll(net: NetworkConfig, fromId: string, toId: string, amount: number, opts?: { fixed?: boolean; refundAddress?: string; useXmr?: boolean }): Promise<XQuote[]> {
   const body: Record<string, unknown> = { provider: "houdini", amount, from: fromId, to: toId };
   if (opts?.fixed) { body.fixed = true; if (opts.refundAddress) body.refundAddress = opts.refundAddress; }
+  if (opts?.useXmr) body.useXmr = true;
   const j = await req(net, "/quote", { method: "POST", body: JSON.stringify(body) });
   return ((j.quotes ?? []) as XQuote[]).filter((q) => q.amountOut > 0);
 }

@@ -11,6 +11,10 @@ const V4_QUOTER = "0x8dc178efb8111bb0973dd9d722ebeff267c98f94";
 const V3_QUOTER = "0x33e885ed0ec9bf04ecfb19341582aadcb4c8a9e7";
 const V3_FACTORY = "0x1f7d7550B1b028f7571E69A784071F0205FD2EfA";
 const V2_FACTORY = "0x8bcEaA40B9AcdfAedF85AdF4FF01F5Ad6517937f";
+// Sherwood's OWN UniswapV2 factory — probed alongside so seeded Sherwood pairs can win routing
+// (AggRouter executes any pair passed in the spoke; volume through these pairs counts as
+// "Sherwood" on DexScreener/GeckoTerminal, which group by factory).
+const SHERWOOD_V2_FACTORY = "0xA51e442369154e2204F8A165A92C5C71C53d6bfa";
 const ZERO = "0x0000000000000000000000000000000000000000";
 
 const lc = (a: string) => a.toLowerCase();
@@ -85,11 +89,13 @@ export async function resolveSpoke(pc: PublicClient, token: string, decimals: nu
   // v3 (WETH pools)
   const v3pools = await Promise.all(V3_FEES.map((fee) => pc.readContract({ address: V3_FACTORY as Address, abi: V3_FAC_ABI, functionName: "getPool", args: [token as Address, WETH as Address, fee] }).catch(() => ZERO as Address)));
   await Promise.all(V3_FEES.map(async (fee, i) => { if (lc(v3pools[i]) === lc(ZERO)) return; try { consider(await v3Quote(pc, token, WETH, fee, ref), { kind: 1, pool: v3pools[i], fee, ts: 0 }); } catch { /* */ } }));
-  // v2 (WETH pair)
-  try {
-    const pair = (await pc.readContract({ address: V2_FACTORY as Address, abi: V2_FAC_ABI, functionName: "getPair", args: [token as Address, WETH as Address] })) as Address;
-    if (lc(pair) !== lc(ZERO)) consider(await v2Quote(pc, pair, token, ref), { kind: 2, pool: pair, fee: 0, ts: 0 });
-  } catch { /* */ }
+  // v2 (WETH pair) — the original factory and Sherwood's own, best output wins
+  await Promise.all([V2_FACTORY, SHERWOOD_V2_FACTORY].map(async (fac) => {
+    try {
+      const pair = (await pc.readContract({ address: fac as Address, abi: V2_FAC_ABI, functionName: "getPair", args: [token as Address, WETH as Address] })) as Address;
+      if (lc(pair) !== lc(ZERO)) consider(await v2Quote(pc, pair, token, ref), { kind: 2, pool: pair, fee: 0, ts: 0 });
+    } catch { /* no pair on this factory */ }
+  }));
   // kind 3: token -> VIRTUAL -> WETH, for tokens with no direct WETH pair (e.g. $SWOOD)
   const k3 = KIND3[lc(token)];
   if (k3) {

@@ -180,6 +180,7 @@ export function XChainPanel({ net, address, isConnected, onConnect, walletProvid
   const [qErr, setQErr] = useState<string | null>(null);
   const [sort, setSort] = useState<"best" | "fastest">("best");
   const [fixed, setFixed] = useState(false);
+  const [xmrHop, setXmrHop] = useState(false);
   const [refund, setRefund] = useState("");
   const [refundOk, setRefundOk] = useState<boolean | null>(null);
   const [selId, setSelId] = useState<string | null>(null);
@@ -203,14 +204,17 @@ export function XChainPanel({ net, address, isConnected, onConnect, walletProvid
     deb.current = setTimeout(async () => {
       setQuoting(true);
       try {
-        const qs = await xchainQuotesAll(net, from.id, to.id, n, fixed ? { fixed: true, refundAddress: refundOk ? refund.trim() : undefined } : undefined);
+        const qs = await xchainQuotesAll(net, from.id, to.id, n, {
+          ...(fixed ? { fixed: true, refundAddress: refundOk ? refund.trim() : undefined } : {}),
+          ...(xmrHop ? { useXmr: true } : {}),
+        });
         setQuotes(qs);
         if (!qs.length) setQErr(fixed ? "No fixed-rate route for this pair/amount — try floating." : "No route for this pair/amount right now.");
       } catch (e: any) { setQErr(friendlyErr(e)); }
       finally { setQuoting(false); }
     }, 700);
     return () => { if (deb.current) clearTimeout(deb.current); };
-  }, [from.id, to.id, amt, fixed, net]);
+  }, [from.id, to.id, amt, fixed, xmrHop, net]);
 
   // destination address validation + prefill for EVM-style chains
   useEffect(() => {
@@ -384,6 +388,9 @@ export function XChainPanel({ net, address, isConnected, onConnect, walletProvid
         <div className="xr-fixedrow">
           <button type="button" className={`xr-fixed ${fixed ? "on" : ""}`} aria-pressed={fixed} onClick={() => setFixed((f) => !f)}>
             <span className="xr-fixed-dot" aria-hidden />Fixed rate — output guaranteed
+          </button>
+          <button type="button" className={`xr-fixed ${xmrHop ? "on" : ""}`} aria-pressed={xmrHop} title="Route the middle hop of private routes through Monero" onClick={() => setXmrHop((f) => !f)}>
+            <span className="xr-fixed-dot" aria-hidden />XMR hop — extra unlinkability
           </button>
           {sel?.fixed && sel.validUntil != null && <span className="mono-sm muted">locks until {fmtLockTime(sel.validUntil)}</span>}
         </div>
