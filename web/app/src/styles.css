@@ -903,6 +903,14 @@ html, body, #root { max-width: 100%; }
 .xc-next { margin: 4px 0 0; color: var(--lime); line-height: 1.5; }
 @media (max-width: 560px) { .xc-form { flex-direction: column; } .xc-modes { grid-template-columns: 1fr; } }
 
+/* governance inline */
+.gov-row { display: flex; flex-direction: column; gap: 7px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.gov-row:last-of-type { border-bottom: 0; padding-bottom: 0; }
+.gov-desc { margin: 0; font-size: 14px; color: var(--moon); line-height: 1.45; }
+.gov-tally { display: flex; gap: 16px; }
+.gov-vote { display: flex; gap: 8px; align-items: center; }
+.gov-vote .gov-on { border-color: var(--lime); color: var(--lime); }
+
 /* multi-step plan */
 .woodie-plan { display: flex; flex-direction: column; gap: 10px; }
 .woodie-plan-head { letter-spacing: 0.3px; }

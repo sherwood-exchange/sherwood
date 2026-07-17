@@ -44,6 +44,7 @@ type Action =
   | { kind: "xchain_out"; symbol: string; amount: string }
   | { kind: "universe" }
   | { kind: "points" }
+  | { kind: "govern" }
   | { kind: "route"; to: RouteTo; note?: string }
   | { kind: "answer" }
   | { kind: "clarify" };
@@ -264,6 +265,7 @@ function ActionView({ action, explorer, ...p }: WoodieProps & { action: Action; 
   if (action.kind === "xchain_out") return <XChainRampCard net={p.net} dir="out" symbol={action.symbol} amount={action.amount} address={p.address} />;
   if (action.kind === "universe") return <UniverseCard net={p.net} />;
   if (action.kind === "points") return <PointsCard net={p.net} address={p.address} />;
+  if (action.kind === "govern") return <GovernCard net={p.net} address={p.address} walletProvider={p.walletProvider} onConnect={p.onConnect} explorer={explorer} />;
   if (EXECUTABLE.has(action.kind)) return <ConfirmCard action={action} explorer={explorer} {...p} />;
   return null; // answer / clarify — say bubble is enough
 }
@@ -481,6 +483,73 @@ function XChainRampCard({ net, dir, symbol, amount, address }: { net: NetworkCon
         </>
       )}
       {quote === "none" && <div className="wc-sub mono-sm muted"><span>No route for that amount right now — try a larger amount, or the panel on the Bridge page.</span></div>}
+    </div>
+  );
+}
+
+const GOV_ABI = [
+  { type: "function", name: "proposalCount", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
+  { type: "function", name: "proposals", stateMutability: "view", inputs: [{ type: "uint256" }], outputs: [
+    { name: "proposer", type: "address" }, { name: "description", type: "string" }, { name: "start", type: "uint64" }, { name: "end", type: "uint64" }, { name: "forVotes", type: "uint256" }, { name: "againstVotes", type: "uint256" }] },
+  { type: "function", name: "voteOf", stateMutability: "view", inputs: [{ type: "uint256" }, { type: "address" }], outputs: [{ type: "uint8" }] },
+  { type: "function", name: "vote", stateMutability: "nonpayable", inputs: [{ type: "uint256" }, { type: "bool" }], outputs: [] },
+] as const;
+type Prop = { id: number; description: string; end: number; forVotes: bigint; againstVotes: bigint; myVote: number };
+
+/** Active governance proposals inline — vote For/Against ($SWOOD-weighted) without leaving chat. */
+function GovernCard({ net, address, walletProvider, onConnect, explorer }: { net: NetworkConfig; address?: string; walletProvider: any; onConnect: () => void; explorer: string }) {
+  const gov = net.swoodGovernor;
+  const pc = useMemo(() => createPublicClient({ chain: chainOf(net), transport: http(net.rpcUrl) }), [net]);
+  const [props, setProps] = useState<Prop[] | null>(null);
+  const [voting, setVoting] = useState<number | null>(null);
+  const now = Math.floor(Date.now() / 1000);
+  async function load() {
+    if (!gov) { setProps([]); return; }
+    try {
+      const count = Number(await pc.readContract({ address: gov, abi: GOV_ABI, functionName: "proposalCount" }));
+      const out: Prop[] = [];
+      for (let i = count - 1; i >= 0 && i >= count - 20 && out.length < 5; i--) {
+        const p = (await pc.readContract({ address: gov, abi: GOV_ABI, functionName: "proposals", args: [BigInt(i)] })) as any;
+        const end = Number(p.end ?? p[3]);
+        if (end <= now) continue; // active only
+        const myVote = address ? Number(await pc.readContract({ address: gov, abi: GOV_ABI, functionName: "voteOf", args: [BigInt(i), address as Address] })) : 0;
+        out.push({ id: i, description: p.description ?? p[1], end, forVotes: p.forVotes ?? p[4], againstVotes: p.againstVotes ?? p[5], myVote });
+      }
+      setProps(out);
+    } catch { setProps([]); }
+  }
+  useEffect(() => { load(); }, [gov, address]);
+  async function castVote(id: number, support: boolean) {
+    if (!walletProvider || !address) { onConnect(); return; }
+    setVoting(id);
+    const tid = toast({ kind: "busy", msg: `Voting ${support ? "For" : "Against"}…` });
+    try {
+      const wc = createWalletClient({ account: address as Address, chain: chainById(net.chainId), transport: custom(walletProvider) });
+      try { await walletProvider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x" + net.chainId.toString(16) }] }); } catch { /* */ }
+      const h = await wc.writeContract({ address: gov!, abi: GOV_ABI, functionName: "vote", args: [BigInt(id), support] });
+      await pc.waitForTransactionReceipt({ hash: h });
+      toast({ id: tid, kind: "ok", msg: `Voted ${support ? "For" : "Against"} proposal #${id}.`, hash: h, explorer });
+      await load();
+    } catch (e: any) { toast({ id: tid, kind: "error", msg: readableErr(e) }); }
+    finally { setVoting(null); }
+  }
+  if (props == null) return <div className="woodie-card"><p className="muted mono-sm" style={{ margin: 0 }}>Loading proposals…</p></div>;
+  if (!props.length) return <div className="woodie-card"><p className="muted mono-sm" style={{ margin: 0 }}>No active proposals right now. <a href="#/govern" style={{ color: "var(--lime)" }}>Open Govern ↗</a></p></div>;
+  const fmtV = (v: bigint) => Number(formatUnits(v, 18)).toLocaleString("en-US", { maximumFractionDigits: 0 });
+  return (
+    <div className="woodie-card" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      {props.map((pr) => (
+        <div className="gov-row" key={pr.id}>
+          <p className="gov-desc">{pr.description}</p>
+          <div className="gov-tally mono-sm muted"><span>For {fmtV(pr.forVotes)}</span><span>Against {fmtV(pr.againstVotes)}</span></div>
+          <div className="gov-vote">
+            <button className={`btn ghost sm ${pr.myVote === 1 ? "gov-on" : ""}`} disabled={voting === pr.id} onClick={() => castVote(pr.id, true)}>For</button>
+            <button className={`btn ghost sm ${pr.myVote === 2 ? "gov-on" : ""}`} disabled={voting === pr.id} onClick={() => castVote(pr.id, false)}>Against</button>
+            {pr.myVote > 0 && <span className="mono-sm muted">you voted {pr.myVote === 1 ? "For" : "Against"}</span>}
+          </div>
+        </div>
+      ))}
+      <span className="mono-sm muted">Vote weight = your staked $SWOOD. Signaling votes.</span>
     </div>
   );
 }
