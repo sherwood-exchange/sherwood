@@ -3,7 +3,7 @@ import { formatUnits, parseUnits, getAddress, createPublicClient, http, type Add
 import { initPoseidon, ERC20_ABI, parseAddress, chainById } from "@sherwood/client";
 import { NETWORKS, DEFAULT_NETWORK, localFromDeploy, type NetworkConfig, type TokenInfo , rpcTransport } from "./config";
 import { connectWithProvider, type Connection } from "./wallet";
-import { useAppKit, useAppKitAccount, useAppKitProvider, useDisconnect, type Provider } from "@reown/appkit/react";
+import { useWallet } from "./wallet-connect";
 import { makeClient, ensureApproval, submitSelf, submitRelayed, relayerAddress, quoteSwap, saveCache, isAsp, needsAspApproval, publishAssociationRoot, wrapEth, unwrapEth } from "./sherwood";
 import { quoteRoute } from "./routing";
 import { PointsPage } from "./PointsPage";
@@ -73,21 +73,14 @@ export default function App() {
     else dismiss("desk");
   };
 
-  // Reown AppKit: the modal handles wallet selection + connection; we then derive the
-  // shielded account from a signature once a provider + address are available.
-  const { open } = useAppKit();
-  const { address: akAddress, isConnected } = useAppKitAccount();
-  const { walletProvider } = useAppKitProvider<Provider>("eip155");
-  const { disconnect: akDisconnect } = useDisconnect();
+  // Privy (email/social → embedded WOODIE wallet) with Reown kept for external wallets; both
+  // feed the same signature-derived shielded account below. See wallet-connect.ts.
+  const { address: akAddress, isConnected, walletProvider, connect: connectWallet, disconnect: disconnectWallet } = useWallet();
   const deriving = useRef(false);
 
-  /** Open the Reown modal. Derivation is handled by the effect below once connected. */
-  async function doConnect() {
-    try {
-      await open();
-    } catch (e: any) {
-      setStatus({ kind: "err", msg: e?.message ?? String(e) });
-    }
+  /** Open the login modal (Privy first, Reown fallback). Derivation runs in the effect below. */
+  function doConnect() {
+    try { connectWallet(); } catch (e: any) { setStatus({ kind: "err", msg: e?.message ?? String(e) }); }
   }
 
   // Derive (or re-derive) the shielded account whenever AppKit reports a fresh connection.
@@ -106,7 +99,7 @@ export default function App() {
         await refresh(c, cl);
       } catch (e: any) {
         setStatus({ kind: "err", msg: e?.shortMessage ?? e?.message ?? String(e) });
-        akDisconnect().catch(() => {});
+        disconnectWallet().catch(() => {});
       } finally {
         setBusy(false);
         deriving.current = false;
@@ -154,7 +147,7 @@ export default function App() {
   }
 
   function doDisconnect() {
-    akDisconnect().catch(() => {});
+    disconnectWallet().catch(() => {});
     setConn(null);
     setClient(null);
     setShielded({});

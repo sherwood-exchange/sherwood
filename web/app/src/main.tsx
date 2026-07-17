@@ -4,6 +4,7 @@ import App from "./App";
 import "./appkit"; // initialize Reown AppKit (createAppKit) before any hook runs
 import "./styles.css";
 import { isWoodieApp } from "./pwa";
+import { AppProviders } from "./privy";
 
 // Launched as the installed WOODIE app? Boot straight into the copilot + tag the root for styling.
 if (isWoodieApp()) {
@@ -13,7 +14,9 @@ if (isWoodieApp()) {
 
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <App />
+    <AppProviders>
+      <App />
+    </AppProviders>
   </React.StrictMode>
 );
 
