@@ -75,7 +75,7 @@ const readableErr = (e: any): string => {
   return m.length > 160 ? m.slice(0, 160) + "…" : m;
 };
 
-const EXAMPLES = ["Shield 0.01 ETH", "Private swap 0.005 ETH → AAPL", "Swap 0.01 ETH → USDG", "Price of NVDA", "What can I trade?", "Bridge 0.05 ETH to Base", "My portfolio"];
+const EXAMPLES = ["Shield 0.01 ETH", "Private swap 0.005 ETH → AAPL", "Bring in 0.01 BTC privately", "Stake 100 SWOOD", "Shield 0.05 ETH then swap into NVDA", "Show governance", "My points", "My portfolio"];
 const ROUTE_LABEL: Record<RouteTo, string> = { stake: "Stake", bridge: "Bridge", swap: "Swap", govern: "Govern", points: "Points" };
 
 export interface WoodieProps {
@@ -236,15 +236,29 @@ export function Woodie(props: WoodieProps) {
 /** Multi-step plan: a numbered stack of confirm cards. Each step is still signed individually
  *  (zero-custody); WOODIE just decomposed the goal and laid out the sequence. */
 function PlanView({ plan, explorer, ...p }: WoodieProps & { plan: Action[]; explorer: string }) {
+  const [done, setDone] = useState(0); // steps completed so far — the plan advances as each is signed
+  const allDone = done >= plan.length;
   return (
     <div className="woodie-plan">
-      <div className="woodie-plan-head mono-sm muted">Plan · {plan.length} steps · confirm each in order</div>
-      {plan.map((action, i) => (
-        <div className="woodie-plan-step" key={i}>
-          <span className="woodie-plan-num">{i + 1}</span>
-          <div className="woodie-plan-body"><ConfirmCard action={action} explorer={explorer} {...p} /></div>
-        </div>
-      ))}
+      <div className="woodie-plan-head mono-sm muted">
+        {allDone ? "Plan complete ✓" : `Plan · ${plan.length} steps · sign each in order (${done}/${plan.length} done)`}
+      </div>
+      {plan.map((action, i) => {
+        const s = describe(action);
+        const state = i < done ? "done" : i === done ? "active" : "pending";
+        return (
+          <div className={`woodie-plan-step ${state}`} key={i}>
+            <span className="woodie-plan-num">{state === "done" ? "✓" : i + 1}</span>
+            <div className="woodie-plan-body">
+              {state === "active" ? (
+                <ConfirmCard action={action} explorer={explorer} {...p} onDone={() => setDone((d) => d + 1)} />
+              ) : (
+                <div className={`woodie-plan-mini mono-sm ${state}`}>{s.verb.replace(/ing\b/, "")} — {s.amount}</div>
+              )}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -630,7 +644,7 @@ function UniverseCard({ net }: { net: NetworkConfig }) {
 }
 
 /** Confirm card for the 4 executable shielded ops: icon + human summary + Confirm & sign. */
-function ConfirmCard({ action, explorer, ...p }: WoodieProps & { action: Action; explorer: string }) {
+function ConfirmCard({ action, explorer, onDone: onDoneCb, ...p }: WoodieProps & { action: Action; explorer: string; onDone?: () => void }) {
   const { net, isConnected, onConnect, tokenBySymbol } = p;
   const [running, setRunning] = useState(false);
   const [done, setDone] = useState(false);
@@ -760,6 +774,7 @@ function ConfirmCard({ action, explorer, ...p }: WoodieProps & { action: Action;
         }
       }
       setDone(true);
+      onDoneCb?.(); // advance a multi-step plan to the next step
     } catch (e: any) {
       toast({ id, kind: "error", msg: readableErr(e) });
     } finally {
