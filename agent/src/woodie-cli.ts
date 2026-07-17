@@ -11,7 +11,7 @@ import { chat, type Reply, type Action, type ChatTurn } from "./woodie.js";
 function rl() { return createInterface({ input: process.stdin, output: process.stdout }); }
 function ask(q: string): Promise<string> { const r = rl(); return new Promise((res) => r.question(q, (a) => { r.close(); res(a.trim()); })); }
 
-const EXECUTABLE = new Set(["shield", "private_transfer", "unshield", "shielded_swap", "public_swap"]);
+const EXECUTABLE = new Set(["shield", "private_transfer", "unshield", "shielded_swap", "public_swap", "stake", "unstake", "claim"]);
 
 /** One-line, human description of how the web app would execute an action (dry-run). */
 function describe(a: Action): string {
@@ -21,6 +21,9 @@ function describe(a: Action): string {
     case "unshield": return `→ web calls withdrawMulti(${a.symbol}, ${a.amount}, recipient=${a.to}) — unshield to a clear address.`;
     case "shielded_swap": return `→ web quotes minOut then swapMulti(${a.symbolIn} → ${a.symbolOut}, ${a.amount}) — shielded swap.`;
     case "public_swap": return `→ web quotes via the aggregator then AggRouter.swap(${a.symbolIn} → ${a.symbolOut}, ${a.amount}) — PUBLIC, not shielded.`;
+    case "stake": return `→ web approves + SwoodStaking.stake(${a.amount} $SWOOD) — earn USDG fees.`;
+    case "unstake": return `→ web SwoodStaking.withdraw(${a.amount ?? "all"} $SWOOD).`;
+    case "claim": return "→ web SwoodStaking.getReward() — claim USDG staking rewards.";
     case "quote": return `→ web calls quoteRoute(${a.symbolIn} → ${a.symbolOut}, ${a.amount}) and shows the number.`;
     case "bridge_quote": return `→ web fetches an indicative Relay quote for ${a.amount} ETH → ${a.chain} (fee + ETA card).`;
     case "xchain_quote": return `→ web quotes the private in-route for ${a.amount} ${a.symbol} (Houdini → ETH on Base → Relay + shield).`;

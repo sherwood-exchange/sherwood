@@ -33,6 +33,9 @@ type Action =
   | { kind: "unshield"; symbol: string; amount: string; to: string }
   | { kind: "shielded_swap"; symbolIn: string; symbolOut: string; amount: string }
   | { kind: "public_swap"; symbolIn: string; symbolOut: string; amount: string }
+  | { kind: "stake"; amount: string }
+  | { kind: "unstake"; amount?: string }
+  | { kind: "claim" }
   | { kind: "portfolio" }
   | { kind: "quote"; symbolIn: string; symbolOut: string; amount: string }
   | { kind: "bridge_quote"; amount: string; chain: string }
@@ -46,7 +49,15 @@ interface Reply { say: string; action?: Action }
 
 type Msg = { role: "user"; text: string } | { role: "woodie"; text: string; action?: Action };
 
-const EXECUTABLE = new Set(["shield", "private_transfer", "unshield", "shielded_swap", "public_swap"]);
+const EXECUTABLE = new Set(["shield", "private_transfer", "unshield", "shielded_swap", "public_swap", "stake", "unstake", "claim"]);
+const SWOOD_ADDR = "0xB1cB27F78B7335df8C3d8ebF0881A15BeD6BeB60" as Address;
+const STAKE_ABI = [
+  { type: "function", name: "stake", stateMutability: "nonpayable", inputs: [{ type: "uint256" }], outputs: [] },
+  { type: "function", name: "withdraw", stateMutability: "nonpayable", inputs: [{ type: "uint256" }], outputs: [] },
+  { type: "function", name: "getReward", stateMutability: "nonpayable", inputs: [], outputs: [] },
+  { type: "function", name: "stakedOf", stateMutability: "view", inputs: [{ type: "address" }], outputs: [{ type: "uint256" }] },
+  { type: "function", name: "earned", stateMutability: "view", inputs: [{ type: "address" }], outputs: [{ type: "uint256" }] },
+] as const;
 const chainOf = (net: NetworkConfig): any => ({
   id: net.chainId, name: net.label,
   nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
@@ -598,6 +609,39 @@ function ConfirmCard({ action, explorer, ...p }: WoodieProps & { action: Action;
         });
         await pc.waitForTransactionReceipt({ hash: h });
         toast({ id, kind: "ok", msg: `Swapped ${action.amount} ${tin.symbol} → ${tout.symbol}.`, hash: h, explorer });
+      } else if (action.kind === "stake" || action.kind === "unstake" || action.kind === "claim") {
+        const staking = net.swoodStaking;
+        if (!staking) throw new Error("Staking isn't configured on this network.");
+        if (!p.walletProvider || !p.address) throw new Error("Connect your wallet first.");
+        const wc = createWalletClient({ account: p.address as Address, chain: chainById(net.chainId), transport: custom(p.walletProvider) });
+        try { await p.walletProvider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x" + net.chainId.toString(16) }] }); } catch { /* manual */ }
+        if (action.kind === "stake") {
+          const amt = parseUnits(action.amount, 18);
+          const allow = (await pc.readContract({ address: SWOOD_ADDR, abi: ERC20_ABI, functionName: "allowance", args: [p.address as Address, staking] })) as bigint;
+          if (allow < amt) {
+            toast({ id, kind: "busy", msg: "Approving $SWOOD…" });
+            const ah = await wc.writeContract({ address: SWOOD_ADDR, abi: ERC20_ABI, functionName: "approve", args: [staking, maxUint256] });
+            await pc.waitForTransactionReceipt({ hash: ah });
+          }
+          toast({ id, kind: "busy", msg: `Staking ${action.amount} $SWOOD…` });
+          const h = await wc.writeContract({ address: staking, abi: STAKE_ABI, functionName: "stake", args: [amt] });
+          await pc.waitForTransactionReceipt({ hash: h });
+          toast({ id, kind: "ok", msg: `Staked ${action.amount} $SWOOD.`, hash: h, explorer });
+        } else if (action.kind === "unstake") {
+          const amt = action.amount ? parseUnits(action.amount, 18) : ((await pc.readContract({ address: staking, abi: STAKE_ABI, functionName: "stakedOf", args: [p.address as Address] })) as bigint);
+          if (amt <= 0n) throw new Error("You have nothing staked.");
+          toast({ id, kind: "busy", msg: "Unstaking $SWOOD…" });
+          const h = await wc.writeContract({ address: staking, abi: STAKE_ABI, functionName: "withdraw", args: [amt] });
+          await pc.waitForTransactionReceipt({ hash: h });
+          toast({ id, kind: "ok", msg: `Unstaked ${trimNum(formatUnits(amt, 18))} $SWOOD.`, hash: h, explorer });
+        } else {
+          const earned = (await pc.readContract({ address: staking, abi: STAKE_ABI, functionName: "earned", args: [p.address as Address] })) as bigint;
+          if (earned <= 0n) throw new Error("No rewards to claim yet.");
+          toast({ id, kind: "busy", msg: "Claiming rewards…" });
+          const h = await wc.writeContract({ address: staking, abi: STAKE_ABI, functionName: "getReward", args: [] });
+          await pc.waitForTransactionReceipt({ hash: h });
+          toast({ id, kind: "ok", msg: `Claimed ${Number(formatUnits(earned, 6)).toFixed(4)} USDG.`, hash: h, explorer });
+        }
       }
       setDone(true);
     } catch (e: any) {
@@ -647,6 +691,12 @@ function describe(a: Action): { icon: string; title: string; sub: string; amount
       return { icon: "⇄", title: `Shielded swap`, sub: `${a.symbolIn} → ${a.symbolOut}, re-shielded`, amount: `${a.amount} ${a.symbolIn}`, verb: `Swapping ${a.amount} ${a.symbolIn} → ${a.symbolOut}`, symbols: [a.symbolIn, a.symbolOut] };
     case "public_swap":
       return { icon: "⇄", title: `Public swap`, sub: `${a.symbolIn} → ${a.symbolOut} — on-chain, NOT private`, amount: `${a.amount} ${a.symbolIn}`, verb: `Swapping ${a.amount} ${a.symbolIn} → ${a.symbolOut}`, symbols: [a.symbolIn, a.symbolOut] };
+    case "stake":
+      return { icon: "◈", title: "Stake $SWOOD", sub: "Earn a share of protocol fees, paid in USDG", amount: `${a.amount} SWOOD`, verb: `Staking ${a.amount} $SWOOD`, symbols: [] };
+    case "unstake":
+      return { icon: "◇", title: "Unstake $SWOOD", sub: a.amount ? "Withdraw from staking" : "Withdraw everything staked", amount: a.amount ? `${a.amount} SWOOD` : "all", verb: "Unstaking $SWOOD", symbols: [] };
+    case "claim":
+      return { icon: "✦", title: "Claim rewards", sub: "Your accrued staking rewards, in USDG", amount: "USDG", verb: "Claiming rewards", symbols: [] };
     default:
       return { icon: "•", title: "", sub: "", amount: "", verb: "Working", symbols: [] };
   }

@@ -19,6 +19,9 @@ export type Action =
   | { kind: "unshield"; symbol: string; amount: string; to: string }
   | { kind: "shielded_swap"; symbolIn: string; symbolOut: string; amount: string }
   | { kind: "public_swap"; symbolIn: string; symbolOut: string; amount: string }
+  | { kind: "stake"; amount: string }
+  | { kind: "unstake"; amount?: string }
+  | { kind: "claim" }
   | { kind: "portfolio" }
   | { kind: "quote"; symbolIn: string; symbolOut: string; amount: string }
   | { kind: "bridge_quote"; amount: string; chain: string }
@@ -79,6 +82,9 @@ function systemPrompt(): string {
     '  {"kind":"unshield","symbol":"USDG","amount":"50","to":"0x…"}      — withdraw to a clear 0x address\n' +
     '  {"kind":"shielded_swap","symbolIn":"ETH","symbolOut":"AAPL","amount":"0.005"} — private swap inside the pool\n' +
     '  {"kind":"public_swap","symbolIn":"ETH","symbolOut":"USDG","amount":"1"}       — ordinary on-chain swap (NOT private) via the public aggregator\n' +
+    '  {"kind":"stake","amount":"100"}                                  — stake $SWOOD to earn a share of protocol swap fees (paid in USDG)\n' +
+    '  {"kind":"unstake","amount":"50"}                                 — unstake $SWOOD (omit amount to unstake everything)\n' +
+    '  {"kind":"claim"}                                                 — claim staking rewards (USDG)\n' +
     '  {"kind":"portfolio"}                                             — user asks to see their balances\n' +
     '  {"kind":"quote","symbolIn":"ETH","symbolOut":"USDG","amount":"1"} — price a swap without executing\n' +
     '  {"kind":"bridge_quote","amount":"0.05","chain":"base"}            — price bridging ETH out of Robinhood Chain to another chain (amount is ETH)\n' +
@@ -108,6 +114,8 @@ function systemPrompt(): string {
     "- Staking $SWOOD → route(stake). Bridging / on-ramp / deposit from another chain → route(bridge). " +
     "PUBLIC (non-private) swaps → route(swap). Governance / voting → route(govern). Points / rewards → route(points). " +
     "SWOOD/ETH liquidity (LP) is coming soon — answer that it is not live yet.\n" +
+    "- 'stake 100 SWOOD' → stake. 'unstake [amount]' or 'unstake all' → unstake (omit amount for all). " +
+    "'claim'/'claim rewards'/'harvest' → claim. Staking rewards are USDG. Only route(stake) if the user just wants to open the page.\n" +
     "- A swap is 'shielded_swap' ONLY when the user asks to keep it private/shielded. A plain 'swap X to Y' " +
     "with amount + both tokens → public_swap (executed right here, clearly marked NOT private). If details " +
     "are missing, clarify. Only use route(swap) when the user asks to open/see the Swap page itself.\n" +
@@ -184,6 +192,18 @@ function repair(obj: any, message: string): Reply {
       if (!symbolIn || !symbolOut || symbolIn === symbolOut) return clarify("Which token should I price? e.g. 'price AAPL' or 'quote 1 ETH to USDG'.");
       return withSay(`Here's the quote for ${amount} ${symbolIn} → ${symbolOut}.`, { kind: "quote", symbolIn, symbolOut, amount });
     }
+    case "stake": {
+      const amount = cleanAmount(a.amount);
+      if (!amount) return clarify("How much $SWOOD should I stake?");
+      return withSay(`Stake ${amount} $SWOOD to earn USDG fees.`, { kind: "stake", amount });
+    }
+    case "unstake": {
+      const amount = cleanAmount(a.amount) ?? undefined;
+      return withSay(amount ? `Unstake ${amount} $SWOOD.` : "Unstake all your $SWOOD.", amount ? { kind: "unstake", amount } : { kind: "unstake" });
+    }
+    case "claim":
+    case "getreward":
+      return withSay("Claim your staking rewards (USDG).", { kind: "claim" });
     case "portfolio":
       return withSay("Here's your portfolio.", { kind: "portfolio" });
     case "bridge_quote": {
@@ -249,7 +269,20 @@ export function ruleChat(message: string): Reply {
     return { say: "Here's everything tradable on Sherwood right now.", action: { kind: "universe" } };
 
   // routing intents (checked before generic "swap")
-  if (/\bstake|staking|unstake\b/.test(m)) return { say: "Staking lives on the Stake page — I'll take you there.", action: { kind: "route", to: "stake", note: "stake $SWOOD" } };
+  // staking — executable in chat
+  if (/\b(claim|harvest)\b/.test(m) && /(reward|staking|swood|usdg)/.test(m) || /^claim( rewards?)?$/.test(m))
+    return { say: "Claim your staking rewards (USDG).", action: { kind: "claim" } };
+  if (/\bunstake|withdraw.*stake|unstak\b/.test(m)) {
+    const amount = cleanAmount((m.match(/[\d.]+/) ?? [])[0]);
+    if (/\ball\b/.test(m) || !amount) return { say: "Unstake all your $SWOOD.", action: { kind: "unstake" } };
+    return { say: `Unstake ${amount} $SWOOD.`, action: { kind: "unstake", amount } };
+  }
+  if (/\bstake\b/.test(m)) {
+    const amount = cleanAmount((m.match(/[\d.]+/) ?? [])[0]);
+    if (amount) return { say: `Stake ${amount} $SWOOD to earn USDG fees.`, action: { kind: "stake", amount } };
+    return { say: "How much $SWOOD should I stake?", action: { kind: "clarify" } };
+  }
+  if (/\bstaking\b/.test(m)) return { say: "Staking lives on the Stake page — I'll take you there.", action: { kind: "route", to: "stake", note: "stake $SWOOD" } };
   if (/\b(liquidity|liquidit|lp\b|pool(ing)?\b.*(add|provide|join|seed)|(add|provide|seed).*pool)\b/.test(m) && !/\bshielded pool\b/.test(m))
     return { say: "SWOOD/ETH liquidity pools are coming soon — not live yet.", action: { kind: "answer" } };
   // bridge with an amount + destination → indicative bridge quote ("bridge 0.05 eth to base")
