@@ -122,6 +122,9 @@ function systemPrompt(): string {
     "- 'cash out 0.1 ETH to monero', 'exit to BTC', 'off-ramp into SOL' → xchain_out: symbol = the outside asset " +
     "received, amount = the ETH leaving (default \"0.1\" if unstated). The Bridge page (OUT) executes it.\n" +
     "- 'What can I trade', 'which tokens do you support', 'list the markets' → universe.\n" +
+    "- 'my points'/'my rank'/'streak' → points (inline). 'governance'/'vote'/'proposals' → govern (shows " +
+    "proposals inline with vote buttons). Use route(points)/route(govern) ONLY if the user explicitly says " +
+    "'open the … page'.\n" +
     "- Staking $SWOOD → route(stake). Bridging / on-ramp / deposit from another chain → route(bridge). " +
     "PUBLIC (non-private) swaps → route(swap). Governance / voting → route(govern). Points / rewards → route(points). " +
     "SWOOD/ETH liquidity (LP) is coming soon — answer that it is not live yet.\n" +
