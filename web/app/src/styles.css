@@ -646,6 +646,24 @@ html, body, #root { max-width: 100%; }
 
 /* ---------- WOODIE — on-chain copilot (#/woodie) ---------- */
 .agent-head { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; }
+.woodie-install { flex: 0 0 auto; margin-left: auto; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+@media (max-width: 480px) { .woodie-install span, .woodie-install { font-size: 12px; } }
+
+/* installed WOODIE app: slimmer nav (brand + connect only) + status-bar padding */
+.woodie-app .nav { padding-top: calc(12px + env(safe-area-inset-top, 0px)); }
+.woodie-app .nav .links { display: none; }
+
+/* iOS / manual add-to-home-screen hint */
+.woodie-ios { position: fixed; inset: 0; z-index: 100; background: rgba(5,7,6,0.7); backdrop-filter: blur(6px); display: grid; place-items: end center; padding: 0 16px calc(24px + env(safe-area-inset-bottom, 0px)); }
+.woodie-ios-card {
+  width: 100%; max-width: 420px; display: flex; flex-direction: column; align-items: flex-start; gap: 10px;
+  background: var(--panel); border: 1px solid var(--line-2); border-radius: 20px; padding: 20px; margin-bottom: 12px;
+  box-shadow: 0 -20px 60px rgba(0,0,0,0.6);
+}
+.woodie-ios-card b { font-size: 17px; }
+.woodie-ios-card p { margin: 0; }
+.woodie-ios-card ol { margin: 4px 0 6px; padding-left: 20px; display: flex; flex-direction: column; gap: 7px; color: var(--moon-dim); line-height: 1.5; }
+.woodie-ios-card ol b { font-size: inherit; color: var(--moon); }
 .agent-avatar {
   flex: 0 0 auto; width: 52px; height: 52px; border-radius: 50%; overflow: hidden; display: grid; place-items: center;
   background: #0e1712;

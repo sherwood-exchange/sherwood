@@ -16,6 +16,7 @@ import { AGG_ABI, spokeArg } from "./PublicSwap";
 import { X_ASSETS, ETH_BASE_ID, xchainQuote, xchainCreate, xchainWatch, xchainStatusLabel, xchainDone, xchainValidAddress, type XQuote, type XOrder } from "./xchain";
 import { TokenAvatar } from "./TokenUI";
 import { toast, dismiss } from "./Toast";
+import { useWoodieIdentity, isStandalone, isIOS, canPromptInstall, promptInstall } from "./pwa";
 
 const ERC8004_IDENTITY = "0x8004A169FB4a3325136EB29fA0ceB6D2e539a432";
 const PLAN_BASE = ((import.meta as any).env?.VITE_PLAN_URL as string | undefined) || "https://sherwood.spot/agent";
@@ -86,6 +87,21 @@ export function Woodie(props: WoodieProps) {
   const scroller = useRef<HTMLDivElement>(null);
   const explorer = net.explorer || "https://robinhoodchain.blockscout.com";
 
+  // Install-as-app: while on this page, "Add to Home Screen" installs WOODIE (own icon/name/start).
+  const [installable, setInstallable] = useState(canPromptInstall());
+  const [iosHint, setIosHint] = useState(false);
+  const installed = isStandalone();
+  useEffect(() => {
+    const restore = useWoodieIdentity();
+    const on = () => setInstallable(canPromptInstall());
+    window.addEventListener("woodie-installable", on);
+    return () => { window.removeEventListener("woodie-installable", on); restore(); };
+  }, []);
+  async function install() {
+    if (installable) { const r = await promptInstall(); if (r !== "accepted" && isIOS()) setIosHint(true); return; }
+    setIosHint(true); // no native prompt (iOS Safari / already-dismissed) → show the manual steps
+  }
+
   useEffect(() => { scroller.current?.scrollTo({ top: scroller.current.scrollHeight, behavior: "smooth" }); }, [msgs, thinking]);
 
   async function send(text: string) {
@@ -131,7 +147,29 @@ export function Woodie(props: WoodieProps) {
           </div>
           <p className="agent-tag muted mono-sm">Sherwood's on-chain copilot · registered on ERC-8004 Identity ↗</p>
         </div>
+        {!installed && (
+          <button className="btn ghost sm woodie-install" onClick={install} title="Install WOODIE as an app">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12m0 0-4-4m4 4 4-4M5 21h14" /></svg>
+            Install app
+          </button>
+        )}
       </div>
+
+      {iosHint && (
+        <div className="woodie-ios" onClick={() => setIosHint(false)}>
+          <div className="woodie-ios-card" onClick={(e) => e.stopPropagation()}>
+            <img src="/woodie.png" alt="" width={48} height={48} style={{ borderRadius: 12 }} />
+            <b>Install WOODIE</b>
+            <p className="mono-sm muted">Add WOODIE to your home screen for a full-screen app:</p>
+            <ol className="mono-sm">
+              <li>Tap the <b>Share</b> button {isIOS() ? "↑" : "in your browser menu"}</li>
+              <li>Choose <b>Add to Home Screen</b></li>
+              <li>Tap <b>Add</b> — WOODIE lands on your home screen 🌲</li>
+            </ol>
+            <button className="btn block sm" onClick={() => setIosHint(false)}>Got it</button>
+          </div>
+        </div>
+      )}
 
       {/* Chat log */}
       <div className="woodie-log" ref={scroller}>

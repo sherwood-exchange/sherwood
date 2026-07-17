@@ -1,7 +1,7 @@
 // Sherwood PWA service worker: installable + offline app shell. Hashed build assets are
 // cached immutably; stable-URL assets (token logos, icons, tokenlist) are network-first so
 // updates propagate without a version bump. NEVER caches relayer/points/rpc API calls.
-const CACHE = "sherwood-v2";
+const CACHE = "sherwood-v3";
 
 self.addEventListener("install", () => self.skipWaiting());
 

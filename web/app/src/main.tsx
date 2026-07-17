@@ -3,6 +3,13 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./appkit"; // initialize Reown AppKit (createAppKit) before any hook runs
 import "./styles.css";
+import { isWoodieApp } from "./pwa";
+
+// Launched as the installed WOODIE app? Boot straight into the copilot + tag the root for styling.
+if (isWoodieApp()) {
+  document.documentElement.classList.add("woodie-app");
+  if (!location.hash.startsWith("#/woodie")) location.hash = "#/woodie";
+}
 
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
