@@ -29,6 +29,7 @@ function describe(a: Action): string {
     case "xchain_quote": return `→ web quotes the private in-route for ${a.amount} ${a.symbol} (Houdini → ETH on Base → Relay + shield).`;
     case "xchain_out": return `→ web quotes the private exit: ${a.amount} ETH on Base → ${a.symbol} at your destination address.`;
     case "universe": return "→ web renders the allowlist chips + the 23 stocks with live pool-depth dots.";
+    case "points": return "→ web shows your points, rank, streak & referrals inline.";
     case "portfolio": return "→ web renders your shielded + clear balances.";
     case "route": return `→ web deep-links the ${a.to} page${a.note ? ` (${a.note})` : ""}.`;
     default: return "";

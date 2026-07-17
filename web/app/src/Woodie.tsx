@@ -14,6 +14,7 @@ import { relayChains, relayQuote } from "./relay";
 import { quotePublic, resolveSpoke, isHub, NATIVE as AGG_NATIVE, type AggToken } from "./aggregator";
 import { AGG_ABI, spokeArg } from "./PublicSwap";
 import { X_ASSETS, ETH_BASE_ID, xchainQuote, xchainCreate, xchainWatch, xchainStatusLabel, xchainDone, xchainValidAddress, type XQuote, type XOrder } from "./xchain";
+import { fetchPoints, type PointsInfo } from "./points";
 import { TokenAvatar } from "./TokenUI";
 import { toast, dismiss } from "./Toast";
 import { useWoodieIdentity, isStandalone, isIOS, canPromptInstall, promptInstall } from "./pwa";
@@ -42,6 +43,7 @@ type Action =
   | { kind: "xchain_quote"; symbol: string; amount: string }
   | { kind: "xchain_out"; symbol: string; amount: string }
   | { kind: "universe" }
+  | { kind: "points" }
   | { kind: "route"; to: RouteTo; note?: string }
   | { kind: "answer" }
   | { kind: "clarify" };
@@ -244,6 +246,7 @@ function ActionView({ action, explorer, ...p }: WoodieProps & { action: Action; 
   if (action.kind === "xchain_quote") return <XChainRampCard net={p.net} dir="in" symbol={action.symbol} amount={action.amount} address={p.address} />;
   if (action.kind === "xchain_out") return <XChainRampCard net={p.net} dir="out" symbol={action.symbol} amount={action.amount} address={p.address} />;
   if (action.kind === "universe") return <UniverseCard net={p.net} />;
+  if (action.kind === "points") return <PointsCard net={p.net} address={p.address} />;
   if (EXECUTABLE.has(action.kind)) return <ConfirmCard action={action} explorer={explorer} {...p} />;
   return null; // answer / clarify — say bubble is enough
 }
@@ -461,6 +464,33 @@ function XChainRampCard({ net, dir, symbol, amount, address }: { net: NetworkCon
         </>
       )}
       {quote === "none" && <div className="wc-sub mono-sm muted"><span>No route for that amount right now — try a larger amount, or the panel on the Bridge page.</span></div>}
+    </div>
+  );
+}
+
+/** Points / rank / streak / referrals inline (same feed as the Points page). */
+function PointsCard({ net, address }: { net: NetworkConfig; address?: string }) {
+  const [p, setP] = useState<PointsInfo | null | "loading">("loading");
+  useEffect(() => {
+    let live = true;
+    if (!address) { setP(null); return; }
+    fetchPoints(net, address).then((r) => { if (live) setP(r); }).catch(() => { if (live) setP(null); });
+    return () => { live = false; };
+  }, [address, net]);
+  if (!address) return <div className="woodie-card"><p className="muted mono-sm" style={{ margin: 0 }}>Connect your wallet to see your points.</p></div>;
+  if (p === "loading") return <div className="woodie-card"><p className="muted mono-sm" style={{ margin: 0 }}>Loading your points…</p></div>;
+  const pts = p?.points ?? 0;
+  return (
+    <div className="woodie-card">
+      <div className="pf-hero2" style={{ marginBottom: 12 }}>
+        <span className="pf-hero-total">{pts.toLocaleString()}<span style={{ fontSize: 16, color: "var(--moon-dim)", fontFamily: "var(--sans)", marginLeft: 8 }}>points{p?.rank ? ` · rank #${p.rank}` : ""}</span></span>
+      </div>
+      <div className="uv-chips">
+        <span className="uv-chip">{p?.shields ?? 0} shields</span>
+        <span className="uv-chip">{p?.streak ?? 0}-day streak</span>
+        <span className="uv-chip">{p?.referrals ?? 0} referrals</span>
+      </div>
+      <a className="wc-sub mono-sm" style={{ display: "inline-block", marginTop: 12, color: "var(--lime)" }} href="#/referral">Invite friends → +200 each ↗</a>
     </div>
   );
 }

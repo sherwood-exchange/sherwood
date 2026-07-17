@@ -28,6 +28,7 @@ export type Action =
   | { kind: "xchain_quote"; symbol: string; amount: string }
   | { kind: "xchain_out"; symbol: string; amount: string }
   | { kind: "universe" }
+  | { kind: "points" }
   | { kind: "route"; to: RouteTo; note?: string }
   | { kind: "answer" }
   | { kind: "clarify" };
@@ -91,6 +92,7 @@ function systemPrompt(): string {
     '  {"kind":"xchain_quote","symbol":"BTC","amount":"0.01"}            — price bringing an OUTSIDE asset (BTC, XMR, SOL, LTC, DOGE, USDT) into Sherwood via the private cross-chain route\n' +
     '  {"kind":"xchain_out","symbol":"XMR","amount":"0.1"}               — price cashing OUT of Sherwood: amount is ETH (on Base) leaving, symbol is the outside asset received (BTC/XMR/SOL/LTC/DOGE/USDT)\n' +
     '  {"kind":"universe"}                                               — user asks what they can trade/shield here (token list + live liquidity)\n' +
+    '  {"kind":"points"}                                                — user asks about THEIR points / rank / streak / referrals\n' +
     '  {"kind":"route","to":"stake|bridge|swap|govern|points","note":"why"} — deep-link a page; do NOT execute here\n' +
     '  {"kind":"answer"}                                                — greeting / "what can you do" / how-it-works / explain\n' +
     '  {"kind":"clarify"}                                               — a required detail is missing; ask for it in say\n\n' +
@@ -214,6 +216,8 @@ function repair(obj: any, message: string): Reply {
     }
     case "universe":
       return withSay("Here's everything tradable on Sherwood right now.", { kind: "universe" });
+    case "points":
+      return withSay("Here are your points.", { kind: "points" });
     case "xchain_quote": {
       const symbol = String(a.symbol ?? "").toUpperCase().replace(/[^A-Z]/g, "").slice(0, 8);
       const OUTSIDE = new Set(["BTC", "XMR", "SOL", "LTC", "DOGE", "USDT", "USDC", "ETH"]);
@@ -307,6 +311,9 @@ export function ruleChat(message: string): Reply {
   }
   if (/\bbridge|on.?ramp|deposit from|top ?up\b/.test(m)) return { say: "Bridging & on-ramp are on the Bridge page.", action: { kind: "route", to: "bridge", note: "bridge / on-ramp" } };
   if (/\bgovern|governance|vote|proposal\b/.test(m)) return { say: "Governance is on the Govern page.", action: { kind: "route", to: "govern", note: "governance" } };
+  // points: "my points / how many points / rank / streak" → inline card; "points page" → route
+  if (/\b(my |how many |check )?points\b|\brank\b|\bstreak\b/.test(m) && !/\bpoints page|open points\b/.test(m))
+    return { say: "Here are your points.", action: { kind: "points" } };
   if (/\bpoints|rewards|referral\b/.test(m)) return { say: "Your points live on the Points page.", action: { kind: "route", to: "points", note: "points" } };
 
   if (/\b(portfolio|balances?|holdings?|my (funds|money|assets))\b/.test(m))
