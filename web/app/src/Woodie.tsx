@@ -47,9 +47,9 @@ type Action =
   | { kind: "route"; to: RouteTo; note?: string }
   | { kind: "answer" }
   | { kind: "clarify" };
-interface Reply { say: string; action?: Action }
+interface Reply { say: string; action?: Action; plan?: Action[] }
 
-type Msg = { role: "user"; text: string } | { role: "woodie"; text: string; action?: Action };
+type Msg = { role: "user"; text: string } | { role: "woodie"; text: string; action?: Action; plan?: Action[] };
 
 const EXECUTABLE = new Set(["shield", "private_transfer", "unshield", "shielded_swap", "public_swap", "stake", "unstake", "claim"]);
 const SWOOD_ADDR = "0xB1cB27F78B7335df8C3d8ebF0881A15BeD6BeB60" as Address;
@@ -136,7 +136,7 @@ export function Woodie(props: WoodieProps) {
       });
       if (!res.ok) throw new Error(`WOODIE returned ${res.status}`);
       const r = (await res.json()) as Reply;
-      setMsgs((m) => [...m, { role: "woodie", text: r.say || "…", action: r.action }]);
+      setMsgs((m) => [...m, { role: "woodie", text: r.say || "…", action: r.action, plan: r.plan }]);
     } catch (e: any) {
       setMsgs((m) => [...m, { role: "woodie", text: `I couldn't reach the copilot just now. ${readableErr(e)}`, action: { kind: "answer" } }]);
     } finally {
@@ -191,7 +191,8 @@ export function Woodie(props: WoodieProps) {
             {m.role === "woodie" && <div className="chat-ava" aria-hidden><img src="/woodie-head.png" alt="" width={26} height={26} /></div>}
             <div className="chat-col">
               <div className={`bubble ${m.role}`}>{m.text}</div>
-              {m.role === "woodie" && m.action && <ActionView action={m.action} {...props} explorer={explorer} />}
+              {m.role === "woodie" && m.plan && m.plan.length > 0 && <PlanView plan={m.plan} {...props} explorer={explorer} />}
+              {m.role === "woodie" && !m.plan && m.action && <ActionView action={m.action} {...props} explorer={explorer} />}
             </div>
           </div>
         ))}
@@ -231,6 +232,22 @@ export function Woodie(props: WoodieProps) {
 }
 
 // ---- action renderers ----
+/** Multi-step plan: a numbered stack of confirm cards. Each step is still signed individually
+ *  (zero-custody); WOODIE just decomposed the goal and laid out the sequence. */
+function PlanView({ plan, explorer, ...p }: WoodieProps & { plan: Action[]; explorer: string }) {
+  return (
+    <div className="woodie-plan">
+      <div className="woodie-plan-head mono-sm muted">Plan · {plan.length} steps · confirm each in order</div>
+      {plan.map((action, i) => (
+        <div className="woodie-plan-step" key={i}>
+          <span className="woodie-plan-num">{i + 1}</span>
+          <div className="woodie-plan-body"><ConfirmCard action={action} explorer={explorer} {...p} /></div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function ActionView({ action, explorer, ...p }: WoodieProps & { action: Action; explorer: string }) {
   if (action.kind === "route") {
     return (

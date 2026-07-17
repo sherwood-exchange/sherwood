@@ -38,6 +38,12 @@ function describe(a: Action): string {
 
 function print(r: Reply) {
   console.log(`\n  WOODIE: ${r.say}`);
+  if (r.plan?.length) {
+    console.log(`  plan (${r.plan.length} steps) — each signed individually:`);
+    r.plan.forEach((a, i) => { console.log(`   ${i + 1}. ${JSON.stringify(a)}`); const d = describe(a); if (d) console.log(`      ${d}`); });
+    console.log();
+    return;
+  }
   if (r.action) {
     console.log(`  action: ${JSON.stringify(r.action)}`);
     if (EXECUTABLE.has(r.action.kind)) console.log("  ⚠ executable — the web app shows a CONFIRM card before signing.");

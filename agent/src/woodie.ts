@@ -32,7 +32,9 @@ export type Action =
   | { kind: "route"; to: RouteTo; note?: string }
   | { kind: "answer" }
   | { kind: "clarify" };
-export interface Reply { say: string; action?: Action }
+export interface Reply { say: string; action?: Action; plan?: Action[] }
+/** Actions the web executes with a signature — used to gate multi-step plan steps. */
+const EXECUTABLE_KINDS = new Set(["shield", "private_transfer", "unshield", "shielded_swap", "public_swap", "stake", "unstake", "claim"]);
 /** One prior chat turn; `kind` is the action kind WOODIE answered with (lets the fallback see clarifies). */
 export interface ChatTurn { role: "user" | "woodie"; text: string; kind?: string }
 export interface ChatCtx { shielded?: string[]; history?: ChatTurn[] }
@@ -76,6 +78,11 @@ function systemPrompt(): string {
     "exactly ONE structured action that the app executes with the user's own wallet.\n\n" +
     "Respond with ONLY a JSON object (no prose, no markdown fences) in this EXACT shape:\n" +
     '{"say":"one short line to the user","action":{...}}\n\n' +
+    "MULTI-STEP: if the user's goal needs SEVERAL executable actions in order (e.g. 'shield 0.1 ETH " +
+    "then privately swap it into AAPL', 'move my ETH into private AAPL exposure'), return a PLAN " +
+    'instead: {"say":"...","plan":[{action1},{action2}]}. Each plan step is one executable action ' +
+    "(shield / private_transfer / unshield / shielded_swap / public_swap / stake / unstake / claim), " +
+    "in the order to run them. Use plan ONLY for genuine multi-step goals; a single action stays as 'action'.\n\n" +
     "Token universe (use ONLY these symbols): " + TOKENS.join(", ") + "\n\n" +
     "ACTION KINDS (pick ONE; amounts are human strings like \"0.01\"):\n" +
     '  {"kind":"shield","symbol":"ETH","amount":"0.01"}                 — deposit wallet funds into the private pool\n' +
@@ -136,6 +143,18 @@ function parseJson(raw: string): any {
 /** Validate + repair an LLM action into the strict contract. Returns a fully-valid Reply. */
 function repair(obj: any, message: string): Reply {
   const say = typeof obj?.say === "string" && obj.say.trim() ? obj.say.trim().slice(0, 400) : "";
+
+  // Multi-step goal: validate each step by reusing this same repair, keep only the executable ones.
+  if (Array.isArray(obj?.plan) && obj.plan.length > 1) {
+    const steps: Action[] = [];
+    for (const item of obj.plan.slice(0, 6)) {
+      const rep = repair({ action: item, say: "" }, message);
+      if (rep.action && EXECUTABLE_KINDS.has(rep.action.kind)) steps.push(rep.action);
+    }
+    if (steps.length >= 2) return { say: say || "Here's the plan — confirm each step.", plan: steps };
+    if (steps.length === 1) return { say: say || "", action: steps[0] };
+  }
+
   const a = obj?.action ?? {};
   const kind = String(a?.kind ?? "").toLowerCase();
 
@@ -259,6 +278,29 @@ function helpText() { return HELP; }
 /** Deterministic intent parser — NO LLM, always returns a valid Reply. */
 export function ruleChat(message: string): Reply {
   const raw = message.trim();
+  const m = raw.toLowerCase();
+  const clarify = (say: string): Reply => ({ say, action: { kind: "clarify" } });
+
+  if (!raw) return { say: HELP, action: { kind: "answer" } };
+
+  // Multi-step without the LLM: split a "X then Y" / "X lalu Y" goal and parse each half.
+  if (/\b(then|lalu|after that|dan lalu|,\s*then)\b/.test(m) && raw.length < 200) {
+    const parts = raw.split(/\s*\b(?:then|lalu|after that|dan lalu)\b\s*|\s*,\s*then\s*/i).map((s) => s.trim()).filter(Boolean);
+    if (parts.length >= 2) {
+      const steps: Action[] = [];
+      for (const part of parts.slice(0, 6)) {
+        const r = ruleChatSingle(part);
+        if (r.action && EXECUTABLE_KINDS.has(r.action.kind)) steps.push(r.action);
+      }
+      if (steps.length >= 2) return { say: "Here's the plan — confirm each step.", plan: steps };
+    }
+  }
+  return ruleChatSingle(raw);
+}
+
+/** Single-intent deterministic parser (one action). ruleChat wraps this to also handle plans. */
+function ruleChatSingle(raw0: string): Reply {
+  const raw = raw0.trim();
   const m = raw.toLowerCase();
   const clarify = (say: string): Reply => ({ say, action: { kind: "clarify" } });
 

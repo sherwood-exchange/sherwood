@@ -903,6 +903,13 @@ html, body, #root { max-width: 100%; }
 .xc-next { margin: 4px 0 0; color: var(--lime); line-height: 1.5; }
 @media (max-width: 560px) { .xc-form { flex-direction: column; } .xc-modes { grid-template-columns: 1fr; } }
 
+/* multi-step plan */
+.woodie-plan { display: flex; flex-direction: column; gap: 10px; }
+.woodie-plan-head { letter-spacing: 0.3px; }
+.woodie-plan-step { display: flex; gap: 10px; align-items: flex-start; }
+.woodie-plan-num { flex: 0 0 auto; width: 24px; height: 24px; margin-top: 4px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 700; color: var(--covert); background: var(--lime); }
+.woodie-plan-body { flex: 1; min-width: 0; }
+
 /* route deep-link */
 .woodie-route {
   display: inline-flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; color: var(--lime);
