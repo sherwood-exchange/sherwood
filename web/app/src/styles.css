@@ -22,6 +22,9 @@
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
 html, body, #root { min-height: 100%; }
+/* Never let stray-wide content expand the mobile layout viewport — that unzooms the page and
+   detaches position:fixed chrome (bottom tab bar) from the visible screen. */
+html, body { overflow-x: clip; }
 body {
   margin: 0;
   background: var(--covert);
@@ -69,6 +72,14 @@ input, select, button { font-family: var(--sans); }
 .icon-link { color: var(--moon-dim); display: grid; place-items: center; transition: color 0.15s; }
 .icon-link:hover { color: var(--lime); }
 @media (max-width: 760px) { .nav .links { display: none; } }
+/* Phones: the full right cluster (network chip + X + wallet) is wider than the screen. Anything
+   that doesn't fit would widen the layout viewport, which silently breaks position:fixed (the
+   bottom tab bar lands beyond the visual viewport) — trim to brand + wallet and forbid overflow. */
+@media (max-width: 560px) {
+  .nav { padding: 12px 14px; gap: 8px; }
+  .nav .net-chip, .nav .icon-link { display: none; }
+  .nav .right { gap: 8px; min-width: 0; flex-shrink: 1; overflow: hidden; }
+}
 
 .pill { font-size: 13px; padding: 6px 12px; border: 1px solid var(--line-2); border-radius: 999px; color: var(--moon-dim); }
 .pill.live { color: var(--lime); border-color: rgba(198, 244, 50, 0.4); }
