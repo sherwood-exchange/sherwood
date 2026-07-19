@@ -38,9 +38,10 @@
 	}
 
 	# Static single-page app (circuit .wasm/.zkey are served from /srv/circuits).
+	# {path}.html lets standalone pages live at clean URLs (/privacy → privacy.html).
 	handle {
 		root * /srv
-		try_files {path} /index.html
+		try_files {path} {path}.html /index.html
 		file_server
 	}
 
