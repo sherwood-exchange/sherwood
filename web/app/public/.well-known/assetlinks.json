@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "spot.sherwood.woodie",
+      "sha256_cert_fingerprints": [
+        "79:45:1A:BD:33:EE:29:76:B9:25:F1:B3:08:AE:77:5D:E6:1A:D5:CA:D6:36:DF:32:CE:C8:98:9F:37:B9:C3:8D"
+      ]
+    }
+  }
+]
