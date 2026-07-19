@@ -25,9 +25,11 @@ export const isTwa = (): boolean => {
     return localStorage.getItem("woodie:twa") === "1";
   } catch { return false; }
 };
-/** Launched as the installed WOODIE app (start_url carries ?app=woodie). */
+/** Launched as the installed WOODIE app (start_url carries ?app=woodie). The param alone is
+ *  enough — only the PWA/TWA launchers use that URL, and gating on display-mode broke the Play
+ *  app on devices where the TWA reports neither standalone nor a referrer. */
 export const isWoodieApp = (): boolean =>
-  new URLSearchParams(location.search).get("app") === "woodie" && (isStandalone() || isTwa());
+  new URLSearchParams(location.search).get("app") === "woodie" || isTwa();
 export const canPromptInstall = (): boolean => deferred !== null;
 
 /** Fire the native install prompt. Returns 'unavailable' when the browser has no prompt
