@@ -5,7 +5,10 @@
       "namespace": "android_app",
       "package_name": "spot.sherwood.woodie",
       "sha256_cert_fingerprints": [
-        "79:45:1A:BD:33:EE:29:76:B9:25:F1:B3:08:AE:77:5D:E6:1A:D5:CA:D6:36:DF:32:CE:C8:98:9F:37:B9:C3:8D"
+        "79:45:1A:BD:33:EE:29:76:B9:25:F1:B3:08:AE:77:5D:E6:1A:D5:CA:D6:36:DF:32:CE:C8:98:9F:37:B9:C3:8D",
+        "C3:FB:6C:A8:C1:36:6E:11:F6:78:CF:47:41:D5:27:08:D5:8D:4E:B9:C0:6A:1D:1B:0C:D0:86:18:4B:D5:BB:38",
+        "25:46:11:BC:D0:F5:39:25:79:D6:99:CC:02:F1:19:0B:63:AD:A7:6B:C4:5D:ED:D3:6C:4F:81:70:9A:47:B7:1E",
+        "BA:4F:08:E6:A7:6C:7E:88:AA:71:48:D8:B7:7F:F4:5A:17:5A:BA:7D:5D:4D:48:AD:A2:3C:A4:20:99:CE:BF:61"
       ]
     }
   }
