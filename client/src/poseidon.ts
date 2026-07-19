@@ -2,8 +2,6 @@
 // and (by construction of poseidon-solidity) the same the contracts use, so
 // commitments / nullifiers / tree roots computed here match on-chain byte-for-byte.
 
-import { buildPoseidon } from "circomlibjs";
-
 type PoseidonFn = ((inputs: (bigint | number | string)[]) => Uint8Array) & {
   F: { toObject: (x: Uint8Array) => bigint };
 };
@@ -11,7 +9,12 @@ type PoseidonFn = ((inputs: (bigint | number | string)[]) => Uint8Array) & {
 let _poseidon: PoseidonFn | null = null;
 
 export async function initPoseidon(): Promise<void> {
-  if (!_poseidon) _poseidon = (await buildPoseidon()) as unknown as PoseidonFn;
+  // Dynamic import keeps circomlibjs (and its ffjavascript/wasm baggage, ~MBs) out of the app's
+  // boot bundle — it loads on the first shielded-account derivation instead.
+  if (!_poseidon) {
+    const { buildPoseidon } = await import("circomlibjs");
+    _poseidon = (await buildPoseidon()) as unknown as PoseidonFn;
+  }
 }
 
 /** Poseidon hash of `inputs`, returned as a field element (bigint). */

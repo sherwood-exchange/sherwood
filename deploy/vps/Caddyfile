@@ -26,15 +26,12 @@
 		reverse_proxy plan:8795
 	}
 
-	# GeckoTerminal proxy: https://{$DOMAIN}/gtproxy/* → api.geckoterminal.com. Their Cloudflare
-	# blocks cross-origin browser requests, so token-page charts/trades must be fetched same-origin.
+	# GeckoTerminal proxy: https://{$DOMAIN}/gtproxy/* → gt service (TTL cache + paced shared
+	# quota + stale-on-429) → api.geckoterminal.com. Their Cloudflare blocks cross-origin browser
+	# requests, so token-page charts/trades must be fetched same-origin — and the free-tier quota
+	# is per-IP, so all users must share one cache instead of racing it.
 	handle_path /gtproxy/* {
-		reverse_proxy https://api.geckoterminal.com {
-			header_up Host api.geckoterminal.com
-			header_up -Origin
-			# GT's Rails routes by forwarded host — leaking sherwood.spot 404s every request
-			header_up -X-Forwarded-Host
-		}
+		reverse_proxy gt:8796
 	}
 
 	# Static single-page app (circuit .wasm/.zkey are served from /srv/circuits).

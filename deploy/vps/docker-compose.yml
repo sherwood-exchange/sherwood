@@ -49,6 +49,20 @@ services:
       retries: 5
       start_period: 8s
 
+  gt:
+    build:
+      context: ../..
+      dockerfile: deploy/vps/Dockerfile.gt
+    restart: unless-stopped
+    expose:
+      - "8796" # internal only — reachable via caddy /gtproxy/*
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:8796/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
   caddy:
     build:
       context: ../..

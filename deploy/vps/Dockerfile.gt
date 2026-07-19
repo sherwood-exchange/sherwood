@@ -1,0 +1,8 @@
+# Caching GeckoTerminal proxy (shared quota + TTL cache for token-page charts).
+# Build context = repo root.
+FROM node:22-slim
+WORKDIR /app
+COPY deploy/vps/gt-proxy.mjs ./gt-proxy.mjs
+ENV NODE_ENV=production
+EXPOSE 8796
+CMD ["node", "gt-proxy.mjs"]

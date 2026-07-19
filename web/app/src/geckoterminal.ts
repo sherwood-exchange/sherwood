@@ -20,7 +20,9 @@ const num = (v: any): number | null => (v == null || v === "" || isNaN(Number(v)
 // single paced queue with two priorities — token-page calls (chart, trades) jump ahead of the
 // background feed — and 429s back off and retry in place.
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-const GAP_MS = 1600; // ≈37/min worst case incl. retries — enough headroom under the 30/min budget
+// In production /gtproxy hits our own VPS cache (which does its own upstream pacing), so the
+// client barely needs to pace; in dev the Vite proxy talks straight to GT's per-IP free tier.
+const GAP_MS = (import.meta as any).env?.PROD ? 250 : 1600;
 interface GtJob { url: string; opts?: RequestInit; resolve: (r: Response) => void; reject: (e: unknown) => void; }
 const gtJobs: GtJob[] = [];
 let gtPumping = false;

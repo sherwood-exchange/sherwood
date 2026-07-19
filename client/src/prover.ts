@@ -2,7 +2,6 @@
 // Pads to exactly N_INS real-or-dummy inputs and N_OUTS outputs, enforces value
 // conservation, runs snarkjs, and formats a,b,c + public signals for Solidity.
 
-import * as snarkjs from "snarkjs";
 import { LEVELS, ASSOC_LEVELS, N_INS, N_OUTS, FIELD_SIZE, mod, type Artifacts } from "./config.js";
 import { Keypair } from "./keypair.js";
 import { Note } from "./note.js";
@@ -157,8 +156,12 @@ export type FullProveFn = (
   artifacts: Artifacts
 ) => Promise<{ proof: any; publicSignals: string[] }>;
 
-export const defaultFullProve: FullProveFn = (input, artifacts) =>
-  snarkjs.groth16.fullProve(input, artifacts.wasm, artifacts.zkey);
+// snarkjs is imported lazily so the multi-MB prover stack stays out of the boot bundle —
+// it loads the first time a proof is actually generated (browsers use the worker path anyway).
+export const defaultFullProve: FullProveFn = async (input, artifacts) => {
+  const snarkjs: any = await import("snarkjs");
+  return snarkjs.groth16.fullProve(input, artifacts.wasm, artifacts.zkey);
+};
 
 export async function proveTransaction(
   args: WitnessArgs,

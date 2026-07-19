@@ -17,8 +17,17 @@ window.addEventListener("appinstalled", () => {
 export const isStandalone = (): boolean =>
   window.matchMedia("(display-mode: standalone)").matches || (navigator as any).standalone === true;
 export const isIOS = (): boolean => /iphone|ipad|ipod/i.test(navigator.userAgent) && !(window as any).MSStream;
+/** Inside the Android TWA (Play Store app). display-mode isn't reliable there, but the first
+ *  navigation carries an android-app:// referrer — remember it so later boots stay in app mode. */
+export const isTwa = (): boolean => {
+  try {
+    if (document.referrer.startsWith("android-app://")) { localStorage.setItem("woodie:twa", "1"); return true; }
+    return localStorage.getItem("woodie:twa") === "1";
+  } catch { return false; }
+};
 /** Launched as the installed WOODIE app (start_url carries ?app=woodie). */
-export const isWoodieApp = (): boolean => new URLSearchParams(location.search).get("app") === "woodie" && isStandalone();
+export const isWoodieApp = (): boolean =>
+  new URLSearchParams(location.search).get("app") === "woodie" && (isStandalone() || isTwa());
 export const canPromptInstall = (): boolean => deferred !== null;
 
 /** Fire the native install prompt. Returns 'unavailable' when the browser has no prompt
