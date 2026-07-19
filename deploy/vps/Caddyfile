@@ -32,6 +32,8 @@
 		reverse_proxy https://api.geckoterminal.com {
 			header_up Host api.geckoterminal.com
 			header_up -Origin
+			# GT's Rails routes by forwarded host — leaking sherwood.spot 404s every request
+			header_up -X-Forwarded-Host
 		}
 	}
 
