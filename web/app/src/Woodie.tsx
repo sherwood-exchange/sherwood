@@ -12,6 +12,7 @@ import { rpcTransport } from "./config";
 import { quoteRoute } from "./routing";
 import { relayChains, relayQuote } from "./relay";
 import { quotePublic, resolveSpoke, isHub, NATIVE as AGG_NATIVE, type AggToken } from "./aggregator";
+import { analyzeRoute, type RouteAnalysis } from "./trade";
 import { AGG_ABI, spokeArg } from "./PublicSwap";
 import { X_ASSETS, ETH_BASE_ID, xchainQuote, xchainCreate, xchainWatch, xchainStatusLabel, xchainDone, xchainValidAddress, type XQuote, type XOrder } from "./xchain";
 import { fetchPoints, type PointsInfo } from "./points";
@@ -89,6 +90,8 @@ export interface WoodieProps {
   tokenBySymbol: (s: string) => TokenInfo | undefined;
   /** App's parseAddress(JSON.parse(str)) — turns a shielded address string into a transfer target. */
   parseShieldedAddress: (s: string) => any;
+  /** Optional prefilled composer text (e.g. "Ask WOODIE about $VEX"); applied whenever seedKey changes. */
+  seed?: string; seedKey?: number;
 }
 
 export function Woodie(props: WoodieProps) {
@@ -98,6 +101,8 @@ export function Woodie(props: WoodieProps) {
   ]);
   const [input, setInput] = useState("");
   const [thinking, setThinking] = useState(false);
+  // "Ask WOODIE about $X" from the trading app seeds the composer (user reviews, then sends).
+  useEffect(() => { if (props.seedKey && props.seed) setInput(props.seed); }, [props.seedKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const scroller = useRef<HTMLDivElement>(null);
   const explorer = net.explorer || "https://robinhoodchain.blockscout.com";
 
@@ -344,7 +349,22 @@ function QuoteCard({ net, action, tokenBySymbol }: { net: NetworkConfig; action:
     })();
     return () => { live = false; };
   }, [pc, action.symbolIn, action.symbolOut, action.amount]);
+  // multirouter breakdown — best DEX route + a public-vs-private comparison
+  const [route, setRoute] = useState<RouteAnalysis | null>(null);
+  useEffect(() => {
+    let live = true;
+    const tin = tokenBySymbol(action.symbolIn), tout = tokenBySymbol(action.symbolOut);
+    if (!tin || !tout) return;
+    (async () => {
+      try { const r = await analyzeRoute(net, tin, tout, parseUnits(action.amount, tin.decimals)); if (live) setRoute(r); } catch { /* best-effort */ }
+    })();
+    return () => { live = false; };
+  }, [net, action.symbolIn, action.symbolOut, action.amount]);
+
   const rate = out != null && Number(action.amount) > 0 ? Number(out) / Number(action.amount) : null;
+  const tout = tokenBySymbol(action.symbolOut);
+  const pub = route?.pub, privOut = route?.privateOut ?? null;
+  const pubBetter = pub?.out != null && privOut != null ? pub.out >= privOut : null;
   return (
     <div className="woodie-card quote">
       <div className="wc-row">
@@ -355,6 +375,17 @@ function QuoteCard({ net, action, tokenBySymbol }: { net: NetworkConfig; action:
         <div className="wc-sub mono-sm muted">
           {rate != null && <span>1 {action.symbolIn} ≈ {trimNum(rate.toLocaleString("en-US", { maximumFractionDigits: 6, useGrouping: false }))} {action.symbolOut}</span>}
           {usd != null && <span>≈ ${usd}</span>}
+        </div>
+      )}
+      {pub && tout && (
+        <div className="wc-route mono-sm">
+          <span className="muted">via <b>{pub.best}</b> · {pub.checked} DEX checked{pub.impactBps != null ? ` · impact ${(pub.impactBps / 100).toFixed(2)}%` : ""}</span>
+          {pub.out != null && privOut != null && (
+            <span>
+              Public {trimNum(formatUnits(pub.out, tout.decimals))} · 🛡 Private {trimNum(formatUnits(privOut, tout.decimals))}
+              <em className="wc-win">{pubBetter ? " · public cheapest" : " · private cheapest"}</em>
+            </span>
+          )}
         </div>
       )}
     </div>

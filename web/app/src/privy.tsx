@@ -21,7 +21,10 @@ export function AppProviders({ children }: { children: ReactNode }) {
         // anyone who logs in without one — that's the "WOODIE wallet". (Add "google"/"twitter"
         // once OAuth is configured in the Privy dashboard.)
         loginMethods: ["email", "wallet"],
-        embeddedWallets: { createOnLogin: "users-without-wallets", showWalletUIs: true },
+        // showWalletUIs:false — our own confirmations (slide-to-confirm, confirm cards) are the
+        // consent step; Privy's per-tx modal on top of them is a double-confirm. External wallets
+        // (Reown/MetaMask) still show their native prompt regardless.
+        embeddedWallets: { createOnLogin: "users-without-wallets", showWalletUIs: false },
         defaultChain: rhChain as any,
         supportedChains: [rhChain as any, base, mainnet, arbitrum, optimism, polygon],
         appearance: {

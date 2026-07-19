@@ -40,7 +40,14 @@ export function useWallet(): WalletConn {
     isConnected: viaPrivy || ak.isConnected,
     walletProvider: viaPrivy ? pp : reownProvider,
     ready: privy.ready,
-    connect: () => { if (privy.ready) privy.login(); else open(); },
+    connect: () => {
+      // Privy's modal only opens on origins allowlisted in its dashboard; localhost usually isn't,
+      // so on local dev fall back to Reown (WalletConnect / injected). Privy stays primary in prod.
+      const host = typeof window !== "undefined" ? window.location.hostname : "";
+      const isLocal = host === "localhost" || host === "127.0.0.1" || host === "0.0.0.0" || host === "::1";
+      if (isLocal || !privy.ready) { open(); return; }
+      privy.login();
+    },
     disconnect: async () => {
       try { if (privy.authenticated) await privy.logout(); } catch { /* */ }
       try { reownDisconnect(); } catch { /* */ }

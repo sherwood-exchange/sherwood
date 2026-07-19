@@ -20,9 +20,13 @@ createRoot(document.getElementById("root")!).render(
   </React.StrictMode>
 );
 
-// Register the PWA service worker (installable + offline app shell).
+// Register the PWA service worker (installable + offline app shell) — PRODUCTION ONLY. In dev the
+// SW caches JS modules and serves stale code across reloads, so unregister it and drop its caches.
 if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/sw.js").catch(() => {});
-  });
+  if ((import.meta as any).env?.PROD) {
+    window.addEventListener("load", () => { navigator.serviceWorker.register("/sw.js").catch(() => {}); });
+  } else {
+    navigator.serviceWorker.getRegistrations().then((rs) => rs.forEach((r) => r.unregister())).catch(() => {});
+    if ("caches" in window) caches.keys().then((keys) => keys.forEach((k) => caches.delete(k))).catch(() => {});
+  }
 }

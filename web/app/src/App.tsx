@@ -15,7 +15,7 @@ import { PublicSwap } from "./PublicSwap";
 import { Bridge } from "./Bridge";
 import { Stake } from "./Stake";
 import { Govern } from "./Govern";
-import { Woodie } from "./Woodie";
+import { WoodieApp } from "./WoodieApp";
 import { RouteChips, TokenAvatar, TokenPicker, tokenGradient } from "./TokenUI";
 import { ToastHost, toast, dismiss } from "./Toast";
 
@@ -25,8 +25,9 @@ type Route = "points" | "referral" | "portfolio" | "swap" | "bridge" | "stake" |
 
 function parseRoute(): Route {
   const h = (location.hash || "").replace(/^#\/?/, "");
-  if (h === "plan") return "woodie"; // legacy deep-link — WOODIE lived at #/plan before the announce
-  return h === "points" || h === "referral" || h === "portfolio" || h === "swap" || h === "bridge" || h === "stake" || h === "govern" || h === "woodie" ? h : "";
+  if (h === "plan" || h.startsWith("plan/")) return "woodie"; // legacy deep-link — WOODIE lived at #/plan before the announce
+  if (h === "woodie" || h.startsWith("woodie/")) return "woodie"; // #/woodie/<SYMBOL> deep-links to a token page
+  return h === "points" || h === "referral" || h === "portfolio" || h === "swap" || h === "bridge" || h === "stake" || h === "govern" ? h : "";
 }
 
 export default function App() {
@@ -387,7 +388,7 @@ export default function App() {
       ) : route === "stake" ? (
         <Stake net={net} walletProvider={walletProvider} address={akAddress} isConnected={isConnected} onConnect={doConnect} />
       ) : route === "woodie" ? (
-        <Woodie
+        <WoodieApp
           net={net} walletProvider={walletProvider} address={akAddress} isConnected={isConnected} onConnect={doConnect}
           shielded={shielded} clear={clear}
           shieldToken={shieldToken} sendMulti={sendMulti} swapMulti={swapMulti} withdrawMulti={withdrawMulti}
@@ -426,25 +427,6 @@ export default function App() {
                 Shield, move and trade privately — keys never left your browser.
               </p>
             </div>
-          </div>
-
-          {/* shielded holdings at a glance */}
-          <div className="desk-sum">
-            {net.tokens
-              .filter((t, i) => net.tokens.findIndex((x) => x.address === t.address) === i)
-              .filter((t) => (shielded[t.symbol] ?? 0n) > 0n)
-              .map((t) => (
-                <span className="ds-chip" key={t.symbol} title={`${formatUnits(shielded[t.symbol]!, t.decimals)} ${t.symbol} shielded`}>
-                  <TokenAvatar sym={t.symbol} logo={t.logo} size={18} />
-                  {trimAmt(formatUnits(shielded[t.symbol]!, t.decimals), 4)} {t.symbol}
-                </span>
-              ))}
-            {syncing ? (
-              <span className="ds-chip empty"><span className="spin dark" style={{ width: 12, height: 12 }} />Syncing the shielded pool…</span>
-            ) : Object.values(shielded).every((v) => (v ?? 0n) === 0n) && (
-              <span className="ds-chip empty">Nothing shielded yet — start below 🛡</span>
-            )}
-            <a className="ds-chip link" href="#/portfolio">Portfolio →</a>
           </div>
 
           {pendingApproval && (

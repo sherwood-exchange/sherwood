@@ -35,5 +35,17 @@ export default defineConfig({
     esbuildOptions: { target: "es2022" },
   },
   build: { target: "es2022" },
-  server: { port: 5173, fs: { allow: [resolve(__dirname, "../..")] } },
+  server: {
+    port: 5173,
+    fs: { allow: [resolve(__dirname, "../..")] },
+    // GeckoTerminal's Cloudflare blocks browser (cross-origin) requests, so charts/trades fail
+    // client-side. Proxy them same-origin here for local dev (production uses a Caddy /gtproxy route).
+    proxy: {
+      "/gtproxy": {
+        target: "https://api.geckoterminal.com",
+        changeOrigin: true,
+        rewrite: (p) => p.replace(/^\/gtproxy/, ""),
+      },
+    },
+  },
 });

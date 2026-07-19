@@ -26,6 +26,15 @@
 		reverse_proxy plan:8795
 	}
 
+	# GeckoTerminal proxy: https://{$DOMAIN}/gtproxy/* → api.geckoterminal.com. Their Cloudflare
+	# blocks cross-origin browser requests, so token-page charts/trades must be fetched same-origin.
+	handle_path /gtproxy/* {
+		reverse_proxy https://api.geckoterminal.com {
+			header_up Host api.geckoterminal.com
+			header_up -Origin
+		}
+	}
+
 	# Static single-page app (circuit .wasm/.zkey are served from /srv/circuits).
 	handle {
 		root * /srv

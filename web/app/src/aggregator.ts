@@ -20,8 +20,11 @@ const ZERO = "0x0000000000000000000000000000000000000000";
 const lc = (a: string) => a.toLowerCase();
 export const isHub = (a: string) => lc(a) === lc(WETH) || lc(a) === lc(NATIVE);
 
-/** How to swap a token to/from the ETH hub. kind: 0=v4, 1=v3, 2=v2. */
-export interface Spoke { kind: 0 | 1 | 2 | 3; pool: Address; fee: number; ts: number; via?: Address; pool2?: Address; }
+/** How to swap a token to/from the ETH hub. kind: 0=v4, 1=v3, 2=v2, 3=2-hop-via-VIRTUAL.
+ *  `src` is a display-only venue label (not sent on-chain) so the UI can show which DEX won. */
+export interface Spoke { kind: 0 | 1 | 2 | 3; pool: Address; fee: number; ts: number; via?: Address; pool2?: Address; src?: string; }
+/** A single candidate route considered for one token↔ETH leg (for the "routes checked" comparison). */
+export interface RouteCand { src: string; out: bigint; spoke: Spoke; }
 const ZERO_ADDR = "0x0000000000000000000000000000000000000000" as Address;
 
 /** A token in the public swap UI. `spoke` is resolved on selection (null for WETH/ETH hub). */
@@ -75,25 +78,33 @@ const KIND3: Record<string, { pool: Address; fee: number }> = {
   ["0xb1cb27f78b7335df8c3d8ebf0881a15bed6beb60"]: { pool: "0xabc83c3F04C3dEc51CE32F8aa83bE281E1B27Dad" as Address, fee: 985 },
 };
 
-/** Resolve the deepest way to swap `token` <-> ETH, probing v4/v3/v2 with a reference amount.
- *  Returns null for WETH/native (hub tokens need no spoke). `hint` (fee/ts from the token list)
- *  is tried first as a fast path. */
-export async function resolveSpoke(pc: PublicClient, token: string, decimals: number, hint?: { fee?: number; ts?: number }): Promise<Spoke | null> {
-  if (isHub(token)) return null;
+const feePct = (fee: number) => `${(fee / 10000).toString()}%`; // v3/v4 fee is in pips (3000 = 0.3%)
+
+// Extra v2-style DEX factories on Robinhood Chain (PancakeSwap, RobinSwap, SwapHood…). They're
+// Uniswap-V2 forks so the same getPair/getReserves probing works; add addresses as they're found.
+// AggRouter.sol executes any pair passed in the spoke, so a winning pool from any of these routes.
+const EXTRA_V2: [string, string][] = [
+  // [factoryAddress, "DEX name"] — e.g. ["0x…", "PancakeSwap v2"], ["0x…", "RobinSwap"]
+];
+
+/** Probe every DEX route for `token` <-> ETH and return ALL candidates (best-first) + the winner.
+ *  Powers the multirouter comparison UI. `resolveSpoke` just takes `.best`. */
+export async function resolveRoutes(pc: PublicClient, token: string, decimals: number, hint?: { fee?: number; ts?: number }): Promise<{ best: Spoke | null; cands: RouteCand[] }> {
+  if (isHub(token)) return { best: null, cands: [] };
   const ref = 10n ** BigInt(decimals); // ~1 token
-  let best: { out: bigint; spoke: Spoke } | null = null;
-  const consider = (out: bigint, spoke: Spoke) => { if (out > 0n && (!best || out > best.out)) best = { out, spoke }; };
+  const cands: RouteCand[] = [];
+  const add = (src: string, out: bigint, spoke: Spoke) => { if (out > 0n) cands.push({ src, out, spoke: { ...spoke, src } }); };
   // v4 (native-ETH pools) — hint first, then the standard fee ladder
   const v4tiers = hint?.fee != null && hint?.ts != null ? [[hint.fee, hint.ts] as [number, number], ...V4_FEES] : V4_FEES;
-  await Promise.all(v4tiers.map(async ([fee, ts]) => { try { consider(await v4Quote(pc, token, token, fee, ts, ref), { kind: 0, pool: ZERO as Address, fee, ts }); } catch { /* no pool */ } }));
+  await Promise.all(v4tiers.map(async ([fee, ts]) => { try { add(`Uniswap v4 · ${feePct(fee)}`, await v4Quote(pc, token, token, fee, ts, ref), { kind: 0, pool: ZERO as Address, fee, ts }); } catch { /* no pool */ } }));
   // v3 (WETH pools)
   const v3pools = await Promise.all(V3_FEES.map((fee) => pc.readContract({ address: V3_FACTORY as Address, abi: V3_FAC_ABI, functionName: "getPool", args: [token as Address, WETH as Address, fee] }).catch(() => ZERO as Address)));
-  await Promise.all(V3_FEES.map(async (fee, i) => { if (lc(v3pools[i]) === lc(ZERO)) return; try { consider(await v3Quote(pc, token, WETH, fee, ref), { kind: 1, pool: v3pools[i], fee, ts: 0 }); } catch { /* */ } }));
-  // v2 (WETH pair) — the original factory and Sherwood's own, best output wins
-  await Promise.all([V2_FACTORY, SHERWOOD_V2_FACTORY].map(async (fac) => {
+  await Promise.all(V3_FEES.map(async (fee, i) => { if (lc(v3pools[i]) === lc(ZERO)) return; try { add(`Uniswap v3 · ${feePct(fee)}`, await v3Quote(pc, token, WETH, fee, ref), { kind: 1, pool: v3pools[i], fee, ts: 0 }); } catch { /* */ } }));
+  // v2 (WETH pair) — the original factory, Sherwood's own, and any extra forks; best output wins
+  await Promise.all(([[V2_FACTORY, "Uniswap v2"], [SHERWOOD_V2_FACTORY, "Sherwood v2"], ...EXTRA_V2] as [string, string][]).map(async ([fac, name]) => {
     try {
       const pair = (await pc.readContract({ address: fac as Address, abi: V2_FAC_ABI, functionName: "getPair", args: [token as Address, WETH as Address] })) as Address;
-      if (lc(pair) !== lc(ZERO)) consider(await v2Quote(pc, pair, token, ref), { kind: 2, pool: pair, fee: 0, ts: 0 });
+      if (lc(pair) !== lc(ZERO)) add(name, await v2Quote(pc, pair, token, ref), { kind: 2, pool: pair, fee: 0, ts: 0 });
     } catch { /* no pair on this factory */ }
   }));
   // kind 3: token -> VIRTUAL -> WETH, for tokens with no direct WETH pair (e.g. $SWOOD)
@@ -101,10 +112,19 @@ export async function resolveSpoke(pc: PublicClient, token: string, decimals: nu
   if (k3) {
     try {
       const out = await v2Quote(pc, PAIR_VIRTUAL_WETH, VIRTUAL, await v2Quote(pc, k3.pool, token, ref, BigInt(k3.fee)));
-      consider(out, { kind: 3, pool: k3.pool, fee: k3.fee, ts: 0, via: VIRTUAL as Address, pool2: PAIR_VIRTUAL_WETH as Address });
+      add("2-hop · via VIRTUAL", out, { kind: 3, pool: k3.pool, fee: k3.fee, ts: 0, via: VIRTUAL as Address, pool2: PAIR_VIRTUAL_WETH as Address });
     } catch { /* */ }
   }
-  return best ? best.spoke : null;
+  // dedupe by venue label (keep the deepest), then sort best-first
+  const bySrc = new Map<string, RouteCand>();
+  for (const c of cands) { const p = bySrc.get(c.src); if (!p || c.out > p.out) bySrc.set(c.src, c); }
+  const uniq = [...bySrc.values()].sort((a, b) => (b.out > a.out ? 1 : b.out < a.out ? -1 : 0));
+  return { best: uniq[0]?.spoke ?? null, cands: uniq };
+}
+
+/** Resolve the single best token<->ETH spoke (back-compat wrapper over resolveRoutes). */
+export async function resolveSpoke(pc: PublicClient, token: string, decimals: number, hint?: { fee?: number; ts?: number }): Promise<Spoke | null> {
+  return (await resolveRoutes(pc, token, decimals, hint)).best;
 }
 
 async function toEth(pc: PublicClient, t: AggToken, amt: bigint): Promise<bigint> {
@@ -134,4 +154,59 @@ export async function quotePublic(pc: PublicClient, tokenIn: AggToken, tokenOut:
   } catch {
     return null;
   }
+}
+
+const venueOf = (s: Spoke) => s.src ?? (s.kind === 0 ? "Uniswap v4" : s.kind === 1 ? "Uniswap v3" : s.kind === 2 ? "Uniswap v2" : "2-hop");
+
+export interface RouteQuote {
+  out: bigint | null;
+  best: string;                 // winning venue label
+  legs: { sym: string; venue: string }[];
+  hops: number;                 // pool hops (fewer = cheaper gas)
+  impactBps: number | null;     // price impact vs a tiny reference trade
+  checked: number;              // how many DEX routes were probed
+  alts: { src: string; deltaBps: number }[]; // runner-up venues vs the winner (per leg)
+}
+
+/** Full multirouter analysis for a public swap: probe every DEX for both legs, pick the best, and
+ *  report the winning path, price impact, venues checked, and runner-up routes. Heavier than
+ *  quotePublic (probes all DEXes) — call it per token-pair, not per keystroke. */
+export async function quotePublicRoute(pc: PublicClient, tokenIn: AggToken, tokenOut: AggToken, amountIn: bigint): Promise<RouteQuote> {
+  const [rin, rout] = await Promise.all([
+    isHub(tokenIn.address) ? Promise.resolve({ best: null as Spoke | null, cands: [] as RouteCand[] }) : resolveRoutes(pc, tokenIn.address, tokenIn.decimals),
+    isHub(tokenOut.address) ? Promise.resolve({ best: null as Spoke | null, cands: [] as RouteCand[] }) : resolveRoutes(pc, tokenOut.address, tokenOut.decimals),
+  ]);
+  const ain: AggToken = { ...tokenIn, spoke: isHub(tokenIn.address) ? null : rin.best };
+  const aout: AggToken = { ...tokenOut, spoke: isHub(tokenOut.address) ? null : rout.best };
+  const out = amountIn > 0n ? await quotePublic(pc, ain, aout, amountIn) : null;
+
+  let impactBps: number | null = null;
+  if (amountIn > 0n && out != null && out > 0n) {
+    try {
+      const tiny = amountIn / 1000n > 0n ? amountIn / 1000n : 1n;
+      const spot = await quotePublic(pc, ain, aout, tiny);
+      if (spot != null && spot > 0n) {
+        const exec = Number(out) / Number(amountIn), ref = Number(spot) / Number(tiny);
+        impactBps = ref > 0 ? Math.max(0, Math.round((1 - exec / ref) * 10000)) : null;
+      }
+    } catch { /* impact best-effort */ }
+  }
+
+  const legs: { sym: string; venue: string }[] = [];
+  if (ain.spoke) legs.push({ sym: tokenIn.symbol, venue: venueOf(ain.spoke) });
+  if (aout.spoke) legs.push({ sym: tokenOut.symbol, venue: venueOf(aout.spoke) });
+  const hops = (ain.spoke ? (ain.spoke.kind === 3 ? 2 : 1) : 0) + (aout.spoke ? (aout.spoke.kind === 3 ? 2 : 1) : 0);
+  const best = legs.map((l) => l.venue).join(" + ") || "Direct";
+
+  // runner-up venues (next best per leg) with their shortfall vs the winner
+  const alts: { src: string; deltaBps: number }[] = [];
+  for (const r of [rin, rout]) {
+    if (r.cands.length < 2) continue;
+    const win = r.cands[0].out;
+    for (const c of r.cands.slice(1, 3)) {
+      const d = win > 0n ? Math.round(Number(win - c.out) * 10000 / Number(win)) : 0;
+      alts.push({ src: c.src, deltaBps: d });
+    }
+  }
+  return { out, best, legs, hops, impactBps, checked: rin.cands.length + rout.cands.length, alts };
 }
