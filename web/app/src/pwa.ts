@@ -22,7 +22,10 @@ export const isIOS = (): boolean => /iphone|ipad|ipod/i.test(navigator.userAgent
 export const isTwa = (): boolean => {
   try {
     if (document.referrer.startsWith("android-app://")) { localStorage.setItem("woodie:twa", "1"); return true; }
-    return localStorage.getItem("woodie:twa") === "1";
+    if (localStorage.getItem("woodie:twa") === "1") return true;
+    // Fallback: the ?app=woodie launch URL on Android WITHOUT standalone display-mode is the TWA —
+    // installed-PWA launches report standalone, browser tabs don't carry the param.
+    return /android/i.test(navigator.userAgent) && new URLSearchParams(location.search).get("app") === "woodie" && !isStandalone();
   } catch { return false; }
 };
 /** Launched as the installed WOODIE app (start_url carries ?app=woodie). The param alone is
