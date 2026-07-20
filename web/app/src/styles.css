@@ -663,12 +663,13 @@ html, body, #root { max-width: 100%; }
 /* installed WOODIE app: slimmer nav (brand + connect only) + status-bar padding */
 .woodie-app .nav { padding-top: calc(12px + env(safe-area-inset-top, 0px)); }
 .woodie-app .nav .links { display: none; }
-/* Installed app (PWA/TWA): Android may draw edge-to-edge with env(safe-area-inset-*) reporting 0
-   and no reliable way to detect the overlap — so app mode ALWAYS floats the bottom tab bar clear
-   with a fixed floor (worst case on non-overlapping devices: a slightly taller bar). */
+/* Truly edge-to-edge devices (viewport spans the whole screen — the .e2e probe in main.tsx):
+   float the chrome clear of the system bars with fixed floors, and lift the chat dock with it.
+   Everywhere else the normal env() paddings are correct. */
 .twa .nav, .e2e .nav { padding-top: calc(12px + max(env(safe-area-inset-top, 0px), 30px)); }
-.woodie-app .wapp-nav { padding-bottom: calc(8px + max(env(safe-area-inset-bottom, 0px), 40px)); }
-.woodie-app .wapp-body { padding-bottom: calc(var(--nav-h) + max(env(safe-area-inset-bottom, 0px), 40px) + 12px); }
+.e2e .wapp-nav { padding-bottom: calc(8px + max(env(safe-area-inset-bottom, 0px), 40px)); }
+.e2e .wapp-body { padding-bottom: calc(var(--nav-h) + max(env(safe-area-inset-bottom, 0px), 40px) + 12px); }
+.e2e .wapp-chat .woodie-dock { bottom: calc(var(--nav-h) + max(env(safe-area-inset-bottom, 0px), 40px)); }
 
 /* iOS / manual add-to-home-screen hint */
 .woodie-ios { position: fixed; inset: 0; z-index: 100; background: rgba(5,7,6,0.7); backdrop-filter: blur(6px); display: grid; place-items: end center; padding: 0 16px calc(24px + env(safe-area-inset-bottom, 0px)); }
