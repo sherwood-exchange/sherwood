@@ -167,10 +167,15 @@ export function Woodie(props: WoodieProps) {
           <p className="agent-tag muted mono-sm">Sherwood's on-chain copilot · registered on ERC-8004 Identity ↗</p>
         </div>
         {!installed && (
-          <button className="btn ghost sm woodie-install" onClick={install} title="Install WOODIE as an app">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12m0 0-4-4m4 4 4-4M5 21h14" /></svg>
-            Install app
-          </button>
+          <div className="woodie-install-col">
+            <button className="btn ghost sm woodie-install" onClick={install} title="Install WOODIE as an app">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12m0 0-4-4m4 4 4-4M5 21h14" /></svg>
+              Install app
+            </button>
+            {/(android)/i.test(navigator.userAgent) && (
+              <a className="mono-sm woodie-apk" href="/woodie.apk" download="WOODIE.apk">or get the .apk ↓</a>
+            )}
+          </div>
         )}
       </div>
 

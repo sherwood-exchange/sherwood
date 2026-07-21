@@ -3,6 +3,21 @@ import { IconShield, IconSwap, IconSeal, IconKey, IconGhost, IconBolt } from "./
 export function Landing({ onConnect, busy }: { onConnect: () => void; busy: boolean }) {
   return (
     <main id="top">
+      {/* ---------------- announcement: WOODIE app ---------------- */}
+      <div className="wrap">
+        <div className="announce-bar">
+          <img src="/woodie-icon-192.png" alt="" width={38} height={38} style={{ borderRadius: 10, flexShrink: 0 }} />
+          <p>
+            <b>The WOODIE app is out.</b> Download &amp; install it on Android today —
+            Google Play and iOS App Store releases are in the works.
+          </p>
+          <a className="btn sm announce-cta" href="/woodie.apk" download="WOODIE.apk">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12m0 0-4-4m4 4 4-4M5 21h14" /></svg>
+            Download for Android
+          </a>
+        </div>
+      </div>
+
       {/* ---------------- hero ---------------- */}
       <section className="hero wrap">
         <div className="hero-grid">

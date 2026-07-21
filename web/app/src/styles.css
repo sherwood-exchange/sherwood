@@ -671,6 +671,24 @@ html, body, #root { max-width: 100%; }
 .e2e .wapp-body { padding-bottom: calc(var(--nav-h) + max(env(safe-area-inset-bottom, 0px), 40px) + 12px); }
 .e2e .wapp-chat .woodie-dock { bottom: calc(var(--nav-h) + max(env(safe-area-inset-bottom, 0px), 40px)); }
 
+/* Landing announcement — the WOODIE app is downloadable */
+.announce-bar {
+  display: flex; align-items: center; gap: 14px;
+  margin-top: 18px; padding: 13px 16px;
+  border: 1px solid rgba(198, 244, 50, 0.35); border-radius: 15px;
+  background: linear-gradient(90deg, rgba(198, 244, 50, 0.1), rgba(198, 244, 50, 0.03));
+}
+.announce-bar p { margin: 0; flex: 1; min-width: 0; font-size: 14px; color: var(--moon-dim); }
+.announce-bar p b { color: var(--moon); }
+.announce-cta { flex-shrink: 0; display: inline-flex; align-items: center; gap: 7px; }
+@media (max-width: 560px) {
+  .announce-bar { flex-wrap: wrap; }
+  .announce-cta { width: 100%; justify-content: center; }
+}
+.woodie-install-col { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; }
+.woodie-apk { color: var(--lime); opacity: 0.85; }
+.woodie-apk:hover { opacity: 1; }
+
 /* iOS / manual add-to-home-screen hint */
 .woodie-ios { position: fixed; inset: 0; z-index: 100; background: rgba(5,7,6,0.7); backdrop-filter: blur(6px); display: grid; place-items: end center; padding: 0 16px calc(24px + env(safe-area-inset-bottom, 0px)); }
 .woodie-ios-card {
