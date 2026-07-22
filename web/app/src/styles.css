@@ -901,6 +901,9 @@ html, body, #root { max-width: 100%; }
 .xr-rtop { display: flex; justify-content: space-between; align-items: center; }
 .xr-badge { font-family: var(--mono); font-size: 11.5px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase; padding: 3px 9px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line-2); color: var(--moon-dim); }
 .xr-badge.private { background: rgba(198,244,50,0.12); border-color: rgba(198,244,50,0.4); color: var(--lime); }
+/* 0x / Matcha route — white-on-dark 0x branding so it pops apart from the Houdini dex rows */
+.xr-badge.zx { background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.35); color: #fff; text-transform: none; }
+.xr-badge.zx::before { content: "0x"; font-weight: 800; margin-right: 5px; padding: 0 4px; border-radius: 5px; background: #fff; color: #0b0d0c; }
 .xr-check { color: var(--lime); font-weight: 800; }
 .xr-ramt { font-family: var(--display); font-weight: 800; font-size: 21px; font-variant-numeric: tabular-nums; }
 .xr-ramt em { font-style: normal; font-size: 14px; color: var(--moon-dim); }

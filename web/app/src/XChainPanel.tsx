@@ -236,7 +236,7 @@ export function XChainPanel({ net, address, isConnected, onConnect, walletProvid
             const p = await zeroexPrice(net, { chainId: info.chainId, sellToken: sell, buyToken: buy, sellAmount: parseUnits(String(n), from.decimals) });
             if (!p.liquidityAvailable || p.buyAmount <= 0n) return null;
             return {
-              quoteId: ZX_ID, type: "dex", swapName: "0x · Matcha",
+              quoteId: ZX_ID, type: "dex", swapName: "best of 100+ sources",
               amountIn: n, amountOut: Number(formatUnits(p.buyAmount, to.decimals ?? 18)), duration: 1,
             } as XQuote;
           } catch { return null; }
@@ -494,7 +494,9 @@ export function XChainPanel({ net, address, isConnected, onConnect, walletProvid
               <button key={q.quoteId} type="button" className={`xr-route ${q.type} ${sel?.quoteId === q.quoteId ? "sel" : ""}`} onClick={() => setSelId(q.quoteId)}>
                 <div className="xr-rtop">
                   <span>
-                    <span className={`xr-badge ${q.type}`}>{TYPE_BADGE[q.type] ?? q.type}</span>
+                    {q.quoteId === ZX_ID
+                      ? <span className="xr-badge zx" title="Best execution across 100+ liquidity sources via the 0x (Matcha) Swap API">Matcha</span>
+                      : <span className={`xr-badge ${q.type}`}>{TYPE_BADGE[q.type] ?? q.type}</span>}
                     {q.fixed && <span className="xr-badge fixedb">Fixed</span>}
                   </span>
                   {sel?.quoteId === q.quoteId && <span className="xr-check" aria-hidden>✓</span>}
