@@ -2,9 +2,18 @@
 // ANY asset on ANY chain → ANY other, with a live routes panel (Best/Fastest, route-type
 // badges, private multi-hop CEX preferred). ETH-on-Base stays the "gateway to Sherwood":
 // land there, then Relay in + shield from the Desk. Keys live in the relayer /xchain proxy.
+//
+// XChainOut (the OUT leg) chains the two rails into one guided cash-out:
+//   shielded ETH → unshield to a fresh relayer-gas-seeded address → Relay RH→Base delivering
+//   STRAIGHT to a Houdini deposit address → private multi-hop → BTC/XMR/SOL/anything.
+// Nothing on the way out links to the user's wallet or the shielded pool.
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { NetworkConfig } from "./config";
-import { createWalletClient, custom, defineChain, type Address } from "viem";
+import type { NetworkConfig, TokenInfo } from "./config";
+import { createWalletClient, createPublicClient, custom, defineChain, http, parseEther, formatEther, formatUnits, type Address } from "viem";
+import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
+import { chainById } from "@sherwood/client";
+import { rpcTransport } from "./config";
+import { relayQuote, relayStatus } from "./relay";
 import {
   ETH_BASE_ID, xchainProviders, xchainQuotesAll, xchainCreate, xchainWatch, xchainChains,
   xchainDexApprove, xchainDexConfirm, xchainStatusLabel, xchainDone, xchainValidAddress, xchainTokenSearch,
@@ -152,7 +161,7 @@ function TokenModal({ net, exclude, onPick, onClose }: { net: NetworkConfig; exc
 }
 
 /** Token+chain button ("SOL · On Solana") that opens the Select-a-token modal. */
-function TokenChainButton({ tok, onPick, net, exclude }: { tok: XToken; onPick: (t: XToken) => void; net: NetworkConfig; exclude?: string }) {
+export function TokenChainButton({ tok, onPick, net, exclude }: { tok: XToken; onPick: (t: XToken) => void; net: NetworkConfig; exclude?: string }) {
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -448,5 +457,252 @@ export function XChainPanel({ net, address, isConnected, onConnect, walletProvid
         )}
       </section>
     </div>
+  );
+}
+
+// ============================== Cash out (OUT leg) ==============================
+
+const RH_ID = 4663;
+const BASE_ID = 8453;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const OUT_LS = "sherwood-xout-order";
+const WETH_ABI = [{ type: "function", name: "withdraw", stateMutability: "nonpayable", inputs: [{ type: "uint256" }], outputs: [] }] as const;
+const baseChain = defineChain({ id: BASE_ID, name: "Base", nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 }, rpcUrls: { default: { http: ["https://mainnet.base.org"] } } });
+/** Placeholder sender for pre-connect Relay quoting (never receives anything). */
+const QUOTE_DUMMY = "0x1111111111111111111111111111111111111111" as Address;
+
+interface OutOrder {
+  houdiniId: string;
+  /** Ephemeral key that unshielded + bridged; ALSO the Houdini refund address on Base — kept
+   *  until the order is terminal so a refund can be swept, then discarded. */
+  ephPk: `0x${string}`; ephAddress: string;
+  toSym: string; toChain: string; dest: string;
+  amountIn: string; estOut: number;
+  displayStatus?: string;
+}
+
+/** Guided private cash-out: shielded ETH → any Houdini asset, one confirm. */
+export function XChainOut({ net, address, isConnected, onConnect, tokens, shielded, unshieldToken }: {
+  net: NetworkConfig; address?: string; isConnected: boolean; onConnect: () => void;
+  tokens: TokenInfo[]; shielded: Record<string, bigint>;
+  unshieldToken: (token: TokenInfo, amount: bigint, recipient: Address) => Promise<void>;
+}) {
+  const eth = tokens.find((t) => t.native) ?? tokens[0];
+  const shBal = shielded[eth.symbol] ?? 0n;
+  const [amt, setAmt] = useState("");
+  const [target, setTarget] = useState<XToken>(POPULAR[1]); // BTC
+  const [dest, setDest] = useState("");
+  const [destOk, setDestOk] = useState<boolean | null>(null);
+  const [quoting, setQuoting] = useState(false);
+  const [est, setEst] = useState<{ ethBase: number; q: XQuote; relaySec?: number } | null>(null);
+  const [qErr, setQErr] = useState<string | null>(null);
+  const [step, setStep] = useState<string | null>(null);
+  const [order, setOrder] = useState<OutOrder | null>(() => { try { return JSON.parse(localStorage.getItem(OUT_LS) ?? "null"); } catch { return null; } });
+  const [status, setStatus] = useState<string | undefined>(order?.displayStatus);
+  const [sweeping, setSweeping] = useState(false);
+  const deb = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const amount = useMemo(() => { try { return parseEther(amt || "0"); } catch { return 0n; } }, [amt]);
+
+  // Quote pipeline: Relay RH→Base estimate, then Houdini ETH@Base → target on that output.
+  useEffect(() => {
+    setEst(null); setQErr(null);
+    if (amount <= 0n) return;
+    if (deb.current) clearTimeout(deb.current);
+    deb.current = setTimeout(async () => {
+      setQuoting(true);
+      try {
+        const rq = await relayQuote({
+          user: (address ?? QUOTE_DUMMY) as Address, recipient: (address ?? QUOTE_DUMMY) as Address,
+          originChainId: RH_ID, destinationChainId: BASE_ID, amount,
+        });
+        const ethBase = Number(formatEther(rq.outAmount));
+        if (!(ethBase > 0)) throw new Error("No bridge route right now — try again shortly.");
+        const qs = (await xchainQuotesAll(net, ETH_BASE_ID, target.id, ethBase)).filter((q) => q.type !== "dex");
+        const best = qs.sort((a, b) => b.amountOut - a.amountOut)[0];
+        if (!best) throw new Error(`No cross-chain route to ${target.symbol} for this amount.`);
+        if (best.min != null && ethBase < best.min) throw new Error(`Too small — this route needs ≥ ${best.min} ETH after bridging (you'd arrive with ≈ ${fmt(ethBase)}).`);
+        setEst({ ethBase, q: best, relaySec: rq.timeEstimateSec });
+      } catch (e: any) { setQErr(friendlyErr(e)); }
+      finally { setQuoting(false); }
+    }, 700);
+    return () => { if (deb.current) clearTimeout(deb.current); };
+  }, [amount, target.id, address, net]);
+
+  // destination address validation for the target chain
+  useEffect(() => {
+    const a = dest.trim();
+    if (!a) { setDestOk(null); return; }
+    let live = true;
+    xchainValidAddress(net, target.chain, a).then((ok) => { if (live) setDestOk(ok); });
+    return () => { live = false; };
+  }, [dest, target.chain, net]);
+
+  // watch the Houdini leg of a live order
+  useEffect(() => {
+    if (!order || xchainDone(status)) return;
+    return xchainWatch(net, order.houdiniId, (s) => {
+      setStatus(s.displayStatus);
+      const next = { ...order, displayStatus: s.displayStatus };
+      try { localStorage.setItem(OUT_LS, JSON.stringify(next)); } catch { /* private mode */ }
+      if (s.displayStatus === "SWAP_COMPLETED") toast({ kind: "ok", msg: `Cash-out complete — ${s.outAmount} ${s.outSymbol} delivered.` });
+    });
+  }, [order?.houdiniId, xchainDone(status), net]);
+
+  async function run() {
+    if (!est || !destOk || !net.relayerUrl) return;
+    setStep("Creating the private route…"); setQErr(null);
+    try {
+      const rhChain = chainById(RH_ID);
+      const pc = createPublicClient({ chain: rhChain, transport: rpcTransport(net) });
+      const pk = generatePrivateKey();
+      const e = privateKeyToAccount(pk);
+      const ewc = createWalletClient({ account: e, chain: rhChain, transport: rpcTransport(net) });
+      // Persist the throwaway key up front — a reload mid-flow must never strand funds.
+      localStorage.setItem("sw-bridge-eph", JSON.stringify({ pk, address: e.address, token: eth, ts: Date.now() }));
+
+      // 1) Houdini order first — its Base deposit address becomes the Relay recipient.
+      //    Floating rate (processes what arrives); refund address = the ephemeral (works on Base).
+      const qs = (await xchainQuotesAll(net, ETH_BASE_ID, target.id, est.ethBase)).filter((q) => q.type !== "dex");
+      const best = qs.sort((a, b) => b.amountOut - a.amountOut)[0];
+      if (!best) throw new Error(`Route to ${target.symbol} vanished — try again.`);
+      const o = await xchainCreate(net, best.quoteId, dest.trim(), e.address);
+      if (!o.depositAddress || !/^0x[0-9a-fA-F]{40}$/.test(o.depositAddress)) throw new Error("Provider returned no usable deposit address.");
+
+      // 2) relayer seeds gas to the fresh address (unlinkable source)
+      setStep("Seeding gas to a fresh address…");
+      await fetch(net.relayerUrl.replace(/\/$/, "") + "/fund-gas", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ address: e.address }) });
+      for (let i = 0; i < 30; i++) { if ((await pc.getBalance({ address: e.address })) > 0n) break; await sleep(2000); }
+      if ((await pc.getBalance({ address: e.address })) <= 0n) throw new Error("Gas seed did not arrive — try again.");
+
+      // 3) unshield to the fresh address (relayer-submitted → unlinkable to the pool)
+      setStep("Unshielding to the fresh address…");
+      await unshieldToken(eth, amount, e.address);
+
+      // 4) unwrap WETH → native so Relay can take it
+      setStep("Preparing funds…");
+      const uh = await ewc.writeContract({ address: eth.address as Address, abi: WETH_ABI, functionName: "withdraw", args: [amount] });
+      await pc.waitForTransactionReceipt({ hash: uh });
+
+      // 5) Relay RH→Base, delivering straight to the Houdini deposit address
+      setStep("Bridging to the exchange leg…");
+      const rq = await relayQuote({ user: e.address, recipient: o.depositAddress as Address, originChainId: RH_ID, destinationChainId: BASE_ID, amount });
+      for (const tx of rq.txs) {
+        const h = await ewc.sendTransaction({ to: tx.to, value: tx.value, data: tx.data, chain: rhChain });
+        await pc.waitForTransactionReceipt({ hash: h });
+      }
+      setStep("Waiting for the bridge to deliver…");
+      for (let i = 0; i < 75; i++) {
+        const s = await relayStatus(rq.requestId);
+        if (s.status === "success") break;
+        if (s.status === "failure" || s.status === "refund") throw new Error(`Bridge ${s.status} — funds are at the temporary address; use Recover on the Desk bridge card.`);
+        await sleep(4000);
+      }
+      // Funds left the ephemeral on RH — clear the Desk-recovery slot; the pk lives on in the
+      // order (it's the Base refund address until Houdini completes).
+      localStorage.removeItem("sw-bridge-eph");
+
+      const ord: OutOrder = {
+        houdiniId: o.houdiniId, ephPk: pk, ephAddress: e.address,
+        toSym: target.symbol, toChain: target.chain, dest: dest.trim(),
+        amountIn: amt, estOut: best.amountOut, displayStatus: o.displayStatus,
+      };
+      setOrder(ord); setStatus(o.displayStatus);
+      try { localStorage.setItem(OUT_LS, JSON.stringify(ord)); } catch { /* private mode */ }
+    } catch (e: any) { setQErr(friendlyErr(e)); }
+    finally { setStep(null); }
+  }
+
+  /** If Houdini refunded (refunds land on Base at the ephemeral), sweep them to the user. */
+  async function sweepRefund() {
+    if (!order || !address) return;
+    setSweeping(true);
+    try {
+      const e = privateKeyToAccount(order.ephPk);
+      const bpc = createPublicClient({ chain: baseChain, transport: http() });
+      const bwc = createWalletClient({ account: e, chain: baseChain, transport: http() });
+      const bal = await bpc.getBalance({ address: e.address });
+      const gas = 30000n * ((await bpc.getGasPrice()) * 12n / 10n);
+      if (bal <= gas) throw new Error("Nothing to sweep at the refund address.");
+      const h = await bwc.sendTransaction({ to: address as Address, value: bal - gas });
+      await bpc.waitForTransactionReceipt({ hash: h });
+      toast({ kind: "ok", msg: `Swept ${fmt(Number(formatEther(bal - gas)))} ETH (Base) to your wallet.` });
+    } catch (e: any) { toast({ kind: "error", msg: friendlyErr(e) }); }
+    finally { setSweeping(false); }
+  }
+
+  function clearOrder() { setOrder(null); setStatus(undefined); localStorage.removeItem(OUT_LS); }
+
+  if (order) {
+    const done = status === "SWAP_COMPLETED";
+    return (
+      <section className="card xc" style={{ maxWidth: 560, margin: "0 auto" }}>
+        <div className="xc-head"><h3 className="xc-title">{done ? "Cash-out complete ✓" : xchainDone(status) ? "Cash-out ended" : "Cash-out in flight"}</h3></div>
+        <div className="xc-order">
+          <div className="xc-row"><span>You sent</span><b>{order.amountIn} ETH (shielded)</b></div>
+          <div className="xc-row"><span>{done ? "Delivered" : "You'll receive"}</span><b>≈ {fmt(order.estOut)} {order.toSym} ({order.toChain})</b></div>
+          <div className="xc-row xc-addr"><span>to</span><span className="mono-sm">{short(order.dest, 12)}</span></div>
+          <div className="xc-row"><span>status</span><b>{xchainStatusLabel(status)}</b></div>
+          <div className="xc-row dim"><span>order</span><span className="mono-sm">{order.houdiniId}</span></div>
+          <p className="xc-next mono-sm">Route: shielded pool → fresh address → Relay → private multi-hop → {order.toChain}. No public link to your wallet.</p>
+          {status === "REFUNDED" && (
+            <button className="btn sm" onClick={sweepRefund} disabled={sweeping || !isConnected}>{sweeping ? "Sweeping…" : "Sweep refund (Base) to my wallet"}</button>
+          )}
+          <button className="btn ghost sm" onClick={clearOrder}>{xchainDone(status) ? "New cash-out" : "Hide (keeps running)"}</button>
+        </div>
+      </section>
+    );
+  }
+
+  const cta = !isConnected ? "Connect wallet"
+    : !Number(amt) ? "Enter an amount"
+    : amount > shBal ? "Insufficient shielded ETH"
+    : quoting ? "Pricing the route…"
+    : !est ? (qErr ?? "No route")
+    : !dest.trim() ? `Enter your ${target.symbol} address`
+    : destOk === false ? `Invalid ${target.chain} address`
+    : step ? step
+    : `Cash out — receive ≈ ${fmt(est.q.amountOut)} ${target.symbol}`;
+
+  return (
+    <section className="card xc" style={{ maxWidth: 560, margin: "0 auto" }}>
+      <div className="public-note">
+        Cash out of Sherwood to <b>anything, anywhere</b> — your ETH is unshielded to a fresh
+        relayer-seeded address, bridged, and privately multi-hopped to {target.symbol}. Nothing
+        links the exit to your wallet or the pool.
+      </div>
+      <div className="asset-panel">
+        <div className="ap-top">
+          <span className="ap-label">You cash out (shielded)</span>
+          <span className="ap-bal">Shielded: {fmt(Number(formatUnits(shBal, 18)))} ETH
+            {shBal > 0n && <button type="button" className="max-chip" onClick={() => setAmt(formatUnits(shBal, 18))}>MAX</button>}
+          </span>
+        </div>
+        <div className="ap-main">
+          <input className="ap-amount" inputMode="decimal" placeholder="0.0" value={amt} onChange={(e) => setAmt(e.target.value)} />
+          <span className="token-pill" style={{ cursor: "default" }}>
+            <TokenAvatar sym={eth.symbol} logo={eth.logo} size={26} />
+            <span style={{ fontWeight: 600, fontSize: 15 }}>ETH</span>
+          </span>
+        </div>
+      </div>
+      <div className="xr-panel" style={{ marginTop: 10 }}>
+        <span className="ap-label">You receive</span>
+        <div className="xr-line">
+          <span className="xr-out">{quoting ? "…" : est ? fmt(est.q.amountOut) : "0.0"}</span>
+          <TokenChainButton tok={target} net={net} exclude={ETH_BASE_ID + "base"} onPick={(t) => { setTarget(t); setDest(""); setDestOk(null); }} />
+        </div>
+        {est?.q.amountOutUsd != null && <span className="mono-sm muted">≈ ${fmt(est.q.amountOutUsd, 2)} · via {est.q.type === "private" ? "private multi-hop" : "standard CEX"}{est.q.duration != null ? ` · ~${Math.round((est.relaySec ?? 60) / 60 + est.q.duration)}m total` : ""}</span>}
+      </div>
+      <input className={`xc-payout mono-sm ${destOk === false ? "bad" : ""}`}
+        placeholder={`Your ${target.symbol} address (on ${target.chain})`}
+        value={dest} onChange={(e) => setDest(e.target.value)} />
+      {qErr && !step && <p className="xc-err mono-sm">{qErr}</p>}
+      {!isConnected ? (
+        <button className="btn block" style={{ marginTop: 12 }} onClick={onConnect}>Connect wallet</button>
+      ) : (
+        <button className="btn block" style={{ marginTop: 12 }} disabled={!est || !destOk || !!step || quoting || amount > shBal} onClick={run}>{cta}</button>
+      )}
+    </section>
   );
 }

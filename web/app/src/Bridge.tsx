@@ -12,7 +12,7 @@ import { rpcTransport } from "./config";
 import { relayChains, relayQuote, relayStatus, type RelayChain, type RelayQuote, type RelayTx } from "./relay";
 import { TokenPicker, TokenAvatar } from "./TokenUI";
 import { toast, dismiss } from "./Toast";
-import { XChainPanel } from "./XChainPanel";
+import { XChainPanel, XChainOut } from "./XChainPanel";
 
 type St = { kind: "ok" | "err" | "busy"; msg: string } | null;
 type Dir = "out" | "in";
@@ -75,6 +75,7 @@ export function Bridge({ net, walletProvider, address, isConnected, onConnect, t
   embedded?: boolean;
 }) {
   const [dir, setDir] = useState<Dir>("out");
+  const [xtab, setXtab] = useState<"route" | "out">("route"); // #/bridge page tabs (non-embedded)
   const [chains, setChains] = useState<RelayChain[]>([]);
   const [otherId, setOtherId] = useState<number>(8453); // Base default
   const [sym, setSym] = useState(tokens[0]?.symbol ?? "ETH");
@@ -376,10 +377,23 @@ export function Bridge({ net, walletProvider, address, isConnected, onConnect, t
       <div className="app-head">
         <div>
           <h2 style={{ fontFamily: "var(--display)", fontSize: 26, margin: 0 }}>Private Route</h2>
-          <p className="muted mono-sm" style={{ margin: "4px 0 0" }}>Swap anything, anywhere — 1000+ tokens across 100 chains, with the trail broken en route. The Relay bridge lives on your Desk.</p>
+          <p className="muted mono-sm" style={{ margin: "4px 0 0" }}>
+            {xtab === "route"
+              ? "Swap anything, anywhere — 1000+ tokens across 100 chains, with the trail broken en route. The Relay bridge lives on your Desk."
+              : "Leave Sherwood without a trace — shielded ETH out to Bitcoin, Monero, Solana or 1000+ other assets in one step."}
+          </p>
+        </div>
+        <div className="xc-dir" role="tablist">
+          <button type="button" role="tab" aria-selected={xtab === "route"} className={`xc-dirbtn ${xtab === "route" ? "sel" : ""}`} onClick={() => setXtab("route")}>Route in</button>
+          <button type="button" role="tab" aria-selected={xtab === "out"} className={`xc-dirbtn ${xtab === "out" ? "sel" : ""}`} onClick={() => setXtab("out")}>Cash out</button>
         </div>
       </div>
-      <XChainPanel net={net} address={address} isConnected={isConnected} onConnect={onConnect} walletProvider={walletProvider} />
+      {xtab === "route" ? (
+        <XChainPanel net={net} address={address} isConnected={isConnected} onConnect={onConnect} walletProvider={walletProvider} />
+      ) : (
+        <XChainOut net={net} address={address} isConnected={isConnected} onConnect={onConnect}
+          tokens={tokens} shielded={shielded} unshieldToken={unshieldToken} />
+      )}
     </div>
   );
 }
