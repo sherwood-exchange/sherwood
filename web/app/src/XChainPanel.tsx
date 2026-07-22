@@ -10,7 +10,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { NetworkConfig, TokenInfo } from "./config";
 import { createWalletClient, createPublicClient, custom, defineChain, http, parseEther, parseUnits, formatEther, formatUnits, type Address } from "viem";
-import { zeroexEnabled, zeroexPrice, zeroexQuote, ZEROEX_CHAINS, ZEROEX_NATIVE } from "./zeroex";
+import { zeroexEnabled, zeroexPrice, zeroexQuote, zeroexCrossQuotes, zeroexCrossStatus, zeroexCrossDone, ZEROEX_CHAINS, ZEROEX_NATIVE, type ZeroExCrossStatus } from "./zeroex";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { chainById } from "@sherwood/client";
 import { rpcTransport } from "./config";
@@ -24,6 +24,7 @@ import { TokenAvatar } from "./TokenUI";
 import { toast } from "./Toast";
 
 const LS_KEY = "sherwood-xchain-order";
+const ZXC_LS = "sherwood-0x-cross-order";
 const short = (s: string, n = 10) => (s.length > n * 2 + 2 ? `${s.slice(0, n)}…${s.slice(-6)}` : s);
 const fmt = (n: number, d = 6) => n.toLocaleString("en-US", { maximumFractionDigits: d, useGrouping: false });
 /** Human copy for provider/wallet errors — never dump raw viem args/calldata at the user. */
@@ -60,8 +61,22 @@ const POPULAR: XToken[] = [
   T("6689b73ec90e45f3b3e51563", "DOGE", "doge", "Dogecoin"),
 ];
 
-// ---- 0x (Matcha) same-chain routes ----
-const ZX_ID = "0x-matcha"; // synthetic quoteId marking the 0x route in the list
+// ---- 0x (Matcha) routes ----
+const ZX_ID = "0x-matcha";  // synthetic quoteId for the 0x same-chain route
+const ZXC_PREFIX = "0xc:";   // prefix for 0x cross-chain route ids (0xc:<real 0x quoteId>)
+const isZx = (id: string) => id === ZX_ID || id.startsWith(ZXC_PREFIX);
+// Houdini chain-name → EVM chainId, so 0x routing never depends on Houdini's /chains being up.
+const ZX_CHAIN_ID: Record<string, number> = {
+  ethereum: 1, base: 8453, arbitrum: 42161, optimism: 10, polygon: 137, bnb: 56, bsc: 56,
+  avalanche: 43114, avax: 43114, linea: 59144, scroll: 534352, mantle: 5000, blast: 81457,
+  unichain: 130, world: 480, worldchain: 480, berachain: 80094, mode: 34443, ink: 57073, sonic: 146,
+};
+/** chainId for a Houdini chain name IF 0x supports it, else null. */
+const zxChainId = (chain: string): number | null => {
+  const id = ZX_CHAIN_ID[chain.toLowerCase()];
+  return id && ZEROEX_CHAINS.has(id) ? id : null;
+};
+interface ZxCrossParams { originChainId: number; destChainId: number; sellToken: string; buyToken: string; sellAmountRaw: bigint; etaSec?: number }
 const ERC20_APPROVE_ABI = [{ type: "function", name: "approve", stateMutability: "nonpayable", inputs: [{ type: "address" }, { type: "uint256" }], outputs: [{ type: "bool" }] }] as const;
 const MAX_U256 = (1n << 256n) - 1n;
 /** 0x token identifier for a catalog token: contract address, or the native sentinel. */
@@ -211,8 +226,29 @@ export function XChainPanel({ net, address, isConnected, onConnect, walletProvid
   });
   const [status, setStatus] = useState<string | undefined>(order?.displayStatus);
   const deb = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 0x cross-chain: params to re-quote a picked route with the real wallet, keyed by synthetic id.
+  const zxcParams = useRef<Map<string, ZxCrossParams>>(new Map());
+  type ZxOrderView = { fromSym: string; fromChain: string; toSym: string; toChain: string; amountIn: string; estOut: number; originChainId: number; originTxHash: string; quoteId: string; dest: string };
+  const [zxOrder, setZxOrder] = useState<ZxOrderView | null>(() => { try { return JSON.parse(localStorage.getItem(ZXC_LS) ?? "null"); } catch { return null; } });
+  const [zxStatus, setZxStatus] = useState<ZeroExCrossStatus | undefined>();
 
   useEffect(() => { xchainProviders(net).then((p) => setEnabled(p.houdini)).catch(() => setEnabled(false)); }, [net]);
+
+  // track a live 0x cross-chain bridge by its origin tx hash
+  useEffect(() => {
+    if (!zxOrder || (zxStatus && zeroexCrossDone(zxStatus))) return;
+    let stop = false;
+    const tick = async () => {
+      const s = await zeroexCrossStatus(net, zxOrder.originChainId, zxOrder.originTxHash, zxOrder.quoteId);
+      if (stop) return;
+      setZxStatus(s.status);
+      if (s.status === "bridge_filled") toast({ kind: "ok", msg: `Bridge complete — ${fmt(zxOrder.estOut)} ${zxOrder.toSym} delivered on ${zxOrder.toChain}.` });
+      if (s.status === "bridge_failed" || s.status === "origin_tx_reverted") toast({ kind: "error", msg: "The 0x bridge failed — check the order id with 0x support." });
+    };
+    tick();
+    const id = setInterval(tick, 8000);
+    return () => { stop = true; clearInterval(id); };
+  }, [zxOrder?.originTxHash, zxStatus, net]);
 
   // Live quotes (pro tier: 5000/day) — debounced on inputs; the relayer still caches 60s.
   useEffect(() => {
@@ -223,32 +259,44 @@ export function XChainPanel({ net, address, isConnected, onConnect, walletProvid
     deb.current = setTimeout(async () => {
       setQuoting(true);
       try {
-        // 0x (Matcha) same-chain route in parallel with Houdini — only when the pair sits on one
-        // 0x-supported EVM chain and we know both token contracts.
-        const zx = (async (): Promise<XQuote | null> => {
+        // 0x routes in parallel with Houdini. Same-chain → one best-execution swap; cross-chain →
+        // up to 3 bridge quotes. Gated on both tokens being EVM contracts on 0x-supported chains.
+        const zx = (async (): Promise<XQuote[]> => {
           try {
-            if (from.chain.toLowerCase() !== to.chain.toLowerCase()) return null;
             const sell = zxAddr(from), buy = zxAddr(to);
-            if (!sell || !buy || from.decimals == null) return null;
-            const info = (await xchainChains(net)).get(from.chain.toLowerCase());
-            if (info?.kind !== "evm" || !info.chainId || !ZEROEX_CHAINS.has(info.chainId)) return null;
-            if (!(await zeroexEnabled(net))) return null;
-            const p = await zeroexPrice(net, { chainId: info.chainId, sellToken: sell, buyToken: buy, sellAmount: parseUnits(String(n), from.decimals) });
-            if (!p.liquidityAvailable || p.buyAmount <= 0n) return null;
-            return {
-              quoteId: ZX_ID, type: "dex", swapName: "best of 100+ sources",
-              amountIn: n, amountOut: Number(formatUnits(p.buyAmount, to.decimals ?? 18)), duration: 1,
-            } as XQuote;
-          } catch { return null; }
+            if (!sell || !buy || from.decimals == null || to.decimals == null) return [];
+            const originId = zxChainId(from.chain);
+            if (!originId) return []; // origin isn't a 0x-supported EVM chain
+            if (!(await zeroexEnabled(net))) return [];
+            const sellRaw = parseUnits(String(n), from.decimals);
+            if (from.chain.toLowerCase() === to.chain.toLowerCase()) {
+              const p = await zeroexPrice(net, { chainId: originId, sellToken: sell, buyToken: buy, sellAmount: sellRaw });
+              if (!p.liquidityAvailable || p.buyAmount <= 0n) return [];
+              return [{ quoteId: ZX_ID, type: "dex", swapName: "best of 100+ sources", amountIn: n, amountOut: Number(formatUnits(p.buyAmount, to.decimals)), duration: 1 } as XQuote];
+            }
+            const destId = zxChainId(to.chain);
+            if (!destId) return []; // destination isn't a 0x-supported EVM chain
+            // display-only quote — destinationAddress doesn't affect EVM pricing; the execute path
+            // re-quotes with the real wallet + receiving address before broadcasting.
+            const qs = await zeroexCrossQuotes(net, {
+              originChain: originId, destinationChain: destId, sellToken: sell, buyToken: buy,
+              sellAmount: sellRaw, originAddress: address ?? QUOTE_DUMMY,
+            });
+            return qs.filter((q) => q.tx).map((q) => {
+              const id = ZXC_PREFIX + q.quoteId;
+              zxcParams.current.set(id, { originChainId: originId, destChainId: destId, sellToken: sell, buyToken: buy, sellAmountRaw: sellRaw, etaSec: q.etaSec });
+              return { quoteId: id, type: "dex", swapName: "0x cross-chain bridge", amountIn: n, amountOut: Number(formatUnits(q.buyAmount, to.decimals!)), duration: q.etaSec ? Math.max(1, Math.round(q.etaSec / 60)) : 2 } as XQuote;
+            });
+          } catch { return []; }
         })();
-        const [hres, zxq] = await Promise.all([
+        const [hres, zxArr] = await Promise.all([
           xchainQuotesAll(net, from.id, to.id, n, {
             ...(fixed ? { fixed: true, refundAddress: refundOk ? refund.trim() : undefined } : {}),
             ...(xmrHop ? { useXmr: true } : {}),
           }).then((qs) => ({ qs, err: null as any }), (e) => ({ qs: [] as XQuote[], err: e })),
           zx,
         ]);
-        const all = zxq ? [...hres.qs, zxq] : hres.qs;
+        const all = [...hres.qs, ...zxArr];
         setQuotes(all);
         if (!all.length) setQErr(hres.err ? friendlyErr(hres.err) : fixed ? "No fixed-rate route for this pair/amount — try floating." : "No route for this pair/amount right now.");
       } catch (e: any) { setQErr(friendlyErr(e)); }
@@ -307,7 +355,7 @@ export function XChainPanel({ net, address, isConnected, onConnect, walletProvid
   const shown = useMemo(() => {
     if (expanded) return sorted.slice(0, 30);
     const top = sorted.slice(0, 3);
-    const zx = sorted.find((q) => q.quoteId === ZX_ID);
+    const zx = sorted.find((q) => isZx(q.quoteId));
     return zx && !top.includes(zx) ? [...top, zx] : top;
   }, [sorted, expanded]);
   const toSherwood = to.id === ETH_BASE_ID;
@@ -324,13 +372,13 @@ export function XChainPanel({ net, address, isConnected, onConnect, walletProvid
         if (!isConnected || !address || !walletProvider) { onConnect(); setCreating(false); return; }
         if (dest.trim().toLowerCase() !== address.toLowerCase())
           throw new Error("The 0x route delivers to your connected wallet — set the receiving address to it, or pick another route.");
-        const info = (await xchainChains(net)).get(from.chain.toLowerCase());
-        if (info?.kind !== "evm" || !info.chainId) throw new Error("0x route needs an EVM chain.");
-        const srcChain = defineChain({ id: info.chainId, name: info.name, nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 }, rpcUrls: { default: { http: [] } } });
+        const chainId = zxChainId(from.chain);
+        if (!chainId) throw new Error("0x route needs a supported EVM chain.");
+        const srcChain = defineChain({ id: chainId, name: from.chain, nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 }, rpcUrls: { default: { http: [] } } });
         const wc = createWalletClient({ account: address as Address, chain: srcChain, transport: custom(walletProvider) });
-        try { await walletProvider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x" + info.chainId.toString(16) }] }); } catch { /* manual */ }
+        try { await walletProvider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x" + chainId.toString(16) }] }); } catch { /* manual */ }
         const q = await zeroexQuote(net, {
-          chainId: info.chainId, sellToken: zxAddr(from)!, buyToken: zxAddr(to)!,
+          chainId, sellToken: zxAddr(from)!, buyToken: zxAddr(to)!,
           sellAmount: parseUnits(String(Number(amt)), from.decimals ?? 18), taker: address, slippageBps: 100,
         });
         const pc = createPublicClient({ chain: srcChain, transport: custom(walletProvider) });
@@ -341,6 +389,34 @@ export function XChainPanel({ net, address, isConnected, onConnect, walletProvid
         const h = await wc.sendTransaction({ to: q.tx.to, data: q.tx.data, value: q.tx.value, chain: srcChain });
         await pc.waitForTransactionReceipt({ hash: h });
         toast({ kind: "ok", msg: `Swapped via 0x — ≈ ${fmt(Number(formatUnits(q.buyAmount, to.decimals ?? 18)))} ${to.symbol} in your wallet (tx ${h.slice(0, 10)}…).` });
+        setAmt(""); setCreating(false);
+        return;
+      }
+      if (sel.quoteId.startsWith(ZXC_PREFIX)) {
+        // 0x cross-chain bridge — user broadcasts the origin tx; 0x bridges to the destination.
+        if (!isConnected || !address || !walletProvider) { onConnect(); setCreating(false); return; }
+        const cp = zxcParams.current.get(sel.quoteId);
+        if (!cp) throw new Error("This route expired — refresh the quote.");
+        const srcChain = defineChain({ id: cp.originChainId, name: from.chain, nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 }, rpcUrls: { default: { http: [] } } });
+        const wc = createWalletClient({ account: address as Address, chain: srcChain, transport: custom(walletProvider) });
+        try { await walletProvider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x" + cp.originChainId.toString(16) }] }); } catch { /* manual */ }
+        // re-quote with the real wallet as originAddress + the receiving address (tx is address-bound)
+        const qs = await zeroexCrossQuotes(net, {
+          originChain: cp.originChainId, destinationChain: cp.destChainId, sellToken: cp.sellToken, buyToken: cp.buyToken,
+          sellAmount: cp.sellAmountRaw, originAddress: address, destinationAddress: dest.trim(), slippageBps: 100,
+        });
+        const q = qs.find((x) => x.tx) ?? qs[0];
+        if (!q?.tx) throw new Error("0x returned no executable bridge tx — pick another route.");
+        const pc = createPublicClient({ chain: srcChain, transport: custom(walletProvider) });
+        if (q.approvalSpender) {
+          const ah = await wc.writeContract({ address: cp.sellToken as Address, abi: ERC20_APPROVE_ABI, functionName: "approve", args: [q.approvalSpender, MAX_U256], chain: srcChain });
+          await pc.waitForTransactionReceipt({ hash: ah });
+        }
+        const h = await wc.sendTransaction({ to: q.tx.to, data: q.tx.data, value: q.tx.value, chain: srcChain });
+        await pc.waitForTransactionReceipt({ hash: h });
+        const view: ZxOrderView = { fromSym: from.symbol, fromChain: from.chain, toSym: to.symbol, toChain: to.chain, amountIn: amt, estOut: Number(formatUnits(q.buyAmount, to.decimals ?? 18)), originChainId: cp.originChainId, originTxHash: h, quoteId: q.quoteId, dest: dest.trim() };
+        setZxOrder(view); setZxStatus("origin_tx_succeeded");
+        try { localStorage.setItem(ZXC_LS, JSON.stringify(view)); } catch { /* private mode */ }
         setAmt(""); setCreating(false);
         return;
       }
@@ -379,10 +455,12 @@ export function XChainPanel({ net, address, isConnected, onConnect, walletProvid
     finally { setCreating(false); }
   }
   function clearOrder() { setOrder(null); setStatus(undefined); localStorage.removeItem(LS_KEY); }
+  function clearZx() { setZxOrder(null); setZxStatus(undefined); localStorage.removeItem(ZXC_LS); }
   const copy = async (s: string) => { try { await navigator.clipboard.writeText(s); toast({ kind: "ok", msg: "Copied." }); } catch { /* blocked */ } };
 
   if (enabled === false || enabled === null) return null;
 
+  const isXcross = !!sel && sel.quoteId.startsWith(ZXC_PREFIX);
   const cta = !Number(amt) ? "Enter an amount"
     : quoting ? "Finding routes…"
     : !sel ? "No route — try another pair/amount"
@@ -390,8 +468,29 @@ export function XChainPanel({ net, address, isConnected, onConnect, walletProvid
     : destOk === false ? `Invalid ${to.chain} address`
     : needRefund && !refundOk ? "Enter a refund address (fixed rate)"
     : creating ? (sel.type === "dex" ? "Confirm in your wallet…" : "Creating order…")
+    : isXcross ? `Bridge via 0x — receive ≈ ${fmt(sel.amountOut)} ${to.symbol} on ${to.chain}`
     : sel.type === "dex" ? `Execute on-chain swap — receive ≈ ${fmt(sel.amountOut)} ${to.symbol}`
     : `Get deposit address — receive ${sel.fixed ? "exactly" : "≈"} ${fmt(sel.amountOut)} ${to.symbol}`;
+
+  if (zxOrder) {
+    const done = zxStatus === "bridge_filled";
+    const failed = zxStatus === "bridge_failed" || zxStatus === "origin_tx_reverted";
+    const label = done ? "Delivered ✓" : failed ? "Bridge failed" : zxStatus === "bridge_pending" ? "Bridging to the destination chain…" : "Confirming on the origin chain…";
+    return (
+      <section className="card xc" style={{ maxWidth: 560, margin: "0 auto" }}>
+        <div className="xc-head"><h3 className="xc-title">{done ? "Cross-chain bridge complete ✓" : failed ? "Cross-chain bridge ended" : "Cross-chain bridge in flight"}</h3></div>
+        <div className="xc-order">
+          <div className="xc-row"><span>You sent</span><b>{zxOrder.amountIn} {zxOrder.fromSym} ({zxOrder.fromChain})</b></div>
+          <div className="xc-row"><span>{done ? "Delivered" : "You'll receive"}</span><b>≈ {fmt(zxOrder.estOut)} {zxOrder.toSym} ({zxOrder.toChain})</b></div>
+          <div className="xc-row xc-addr"><span>to</span><span className="mono-sm">{short(zxOrder.dest, 12)}</span></div>
+          <div className="xc-row"><span>status</span><b>{label}</b></div>
+          <div className="xc-row dim"><span>origin tx</span><span className="mono-sm">{short(zxOrder.originTxHash, 12)}</span></div>
+          <p className="xc-next mono-sm">Routed by the 0x Cross-Chain API · best-execution bridge across chains.</p>
+          <button className="btn ghost sm" onClick={clearZx}>{done || failed ? "New route" : "Hide (keeps running)"}</button>
+        </div>
+      </section>
+    );
+  }
 
   if (order) {
     const v = order.view;
@@ -502,8 +601,8 @@ export function XChainPanel({ net, address, isConnected, onConnect, walletProvid
               <button key={q.quoteId} type="button" className={`xr-route ${q.type} ${sel?.quoteId === q.quoteId ? "sel" : ""}`} onClick={() => setSelId(q.quoteId)}>
                 <div className="xr-rtop">
                   <span>
-                    {q.quoteId === ZX_ID
-                      ? <span className="xr-badge zx" title="Best execution across 100+ liquidity sources via the 0x (Matcha) Swap API">Matcha</span>
+                    {isZx(q.quoteId)
+                      ? <span className="xr-badge zx" title={q.quoteId === ZX_ID ? "Best execution across 100+ liquidity sources via the 0x (Matcha) Swap API" : "Cross-chain bridge routed by the 0x (Matcha) Cross-Chain API"}>Matcha{q.quoteId !== ZX_ID ? " · bridge" : ""}</span>
                       : <span className={`xr-badge ${q.type}`}>{TYPE_BADGE[q.type] ?? q.type}</span>}
                     {q.fixed && <span className="xr-badge fixedb">Fixed</span>}
                   </span>

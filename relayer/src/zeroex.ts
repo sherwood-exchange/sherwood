@@ -69,6 +69,30 @@ export async function handleZeroex(req: IncomingMessage, res: ServerResponse): P
       await proxy(res, firm ? "/swap/allowance-holder/quote" : "/swap/allowance-holder/price", qs, !firm);
       return true;
     }
+    // Cross-chain quotes: one call returns firm quotes WITH the origin-chain tx (no cache).
+    if (u.pathname === "/0x/xquotes") {
+      const qs = new URLSearchParams({
+        originChain: want("originChain"),
+        destinationChain: want("destinationChain"),
+        sellToken: want("sellToken"),
+        buyToken: want("buyToken"),
+        sellAmount: want("sellAmount"),
+        originAddress: want("originAddress"),
+        sortQuotesBy: u.searchParams.get("sortQuotesBy") ?? "price",
+      });
+      for (const p of ["destinationAddress", "slippageBps", "maxNumQuotes"]) {
+        const v = u.searchParams.get(p); if (v) qs.set(p, v);
+      }
+      await proxy(res, "/cross-chain/quotes", qs, false);
+      return true;
+    }
+    // Cross-chain status: track a bridge by its origin-chain tx hash.
+    if (u.pathname === "/0x/xstatus") {
+      const qs = new URLSearchParams({ originChain: want("originChain"), originTxHash: want("originTxHash") });
+      const qid = u.searchParams.get("quoteId"); if (qid) qs.set("quoteId", qid);
+      await proxy(res, "/cross-chain/status", qs, false);
+      return true;
+    }
     json(res, 404, { error: "not found" });
   } catch (e: any) {
     json(res, 400, { error: e?.message ?? String(e) });
