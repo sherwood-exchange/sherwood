@@ -377,6 +377,7 @@ export default function App() {
       />
 
       <div className="page-body">
+      <div className="route-swap" key={route}>
       {route === "swap" ? (
         <PublicSwap net={net} walletProvider={walletProvider} address={akAddress} isConnected={isConnected} onConnect={doConnect} />
       ) : route === "bridge" ? (
@@ -506,6 +507,7 @@ export default function App() {
           </div>
         </div>
       )}
+      </div>
       </div>
 
       <Footer />

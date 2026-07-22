@@ -357,6 +357,13 @@ html, body, #root { max-width: 100%; }
 /* ============ sticky footer + modern swap/desk UI ============ */
 #root { display: flex; flex-direction: column; min-height: 100vh; }
 .page-body { flex: 1 0 auto; }
+/* Smooth page migration: each route fades + rises in on navigation (keyed remount in App). */
+.route-swap { animation: route-in .34s cubic-bezier(.22,.61,.36,1) both; }
+@keyframes route-in {
+  from { opacity: 0; transform: translateY(10px) scale(.994); }
+  to   { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) { .route-swap { animation: none; } }
 .footer { margin-top: 56px; }
 
 /* --- amount panel (Uniswap-style) --- */
@@ -1030,6 +1037,11 @@ html, body, #root { max-width: 100%; }
 
 .wapp { position: relative; max-width: 540px; margin: 0 auto; min-height: calc(100dvh - 120px); }
 .wapp-body { padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px) + 12px); }
+/* Smooth tab switch inside the WOODIE app (Discover ⇄ Portfolio). */
+.wapp-tab { animation: route-in .28s cubic-bezier(.22,.61,.36,1) both; }
+@media (prefers-reduced-motion: reduce) { .wapp-tab { animation: none; } }
+.wnav-btn svg { transition: transform .18s cubic-bezier(.34,1.56,.64,1); }
+.wnav-btn.on svg { transform: translateY(-1px) scale(1.08); }
 
 /* bottom tab bar */
 .wapp-nav {

@@ -211,12 +211,16 @@ export function WoodieApp(props: WoodieProps) {
     <div className="wapp">
       <div className="wapp-body">
         {tab === "discover" && (
-          <DiscoverTab tradable={tradable} markets={markets} loaded={loaded} flash={flash} addrOf={addrOf} onOpen={openToken} net={net} wl={wl} updatedAt={updatedAt} />
+          <div className="wapp-tab" key="discover">
+            <DiscoverTab tradable={tradable} markets={markets} loaded={loaded} flash={flash} addrOf={addrOf} onOpen={openToken} net={net} wl={wl} updatedAt={updatedAt} />
+          </div>
         )}
         {tab === "portfolio" && (
-          <PortfolioTab tradable={tradable} priceUsdOf={priceUsdOf} marketOf={marketOf} totalUsd={totalUsd}
-            clear={props.clear} shielded={props.shielded} onOpen={openToken} isConnected={props.isConnected} onConnect={props.onConnect}
-            net={net} address={props.address} walletProvider={props.walletProvider} shieldToken={props.shieldToken} />
+          <div className="wapp-tab" key="portfolio">
+            <PortfolioTab tradable={tradable} priceUsdOf={priceUsdOf} marketOf={marketOf} totalUsd={totalUsd}
+              clear={props.clear} shielded={props.shielded} onOpen={openToken} isConnected={props.isConnected} onConnect={props.onConnect}
+              net={net} address={props.address} walletProvider={props.walletProvider} shieldToken={props.shieldToken} />
+          </div>
         )}
         {/* Chat stays mounted so its history survives tab switches; just hidden when inactive. */}
         <div className="wapp-chat" style={{ display: tab === "chat" ? "block" : "none" }}>
