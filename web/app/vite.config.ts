@@ -34,7 +34,25 @@ export default defineConfig({
     include: ["snarkjs", "circomlibjs"],
     esbuildOptions: { target: "es2022" },
   },
-  build: { target: "es2022" },
+  build: {
+    target: "es2022",
+    rollupOptions: {
+      output: {
+        // Stable vendor chunks: app-code deploys no longer invalidate the heavy wallet/crypto
+        // stack in users' caches, and the browser parses them in parallel with the app chunk.
+        // NOTE: do NOT force the wallet stack (@privy-io/@reown/@walletconnect) into one chunk —
+        // that drags their internally lazy-loaded modules into the eager payload and grows the
+        // first load. Only pin the always-static vendors.
+        manualChunks(id) {
+          if (!id.includes("node_modules")) return undefined;
+          if (/node_modules\/(react|react-dom|scheduler)\//.test(id)) return "vendor-react";
+          if (/node_modules\/viem\//.test(id)) return "vendor-viem";
+          if (/node_modules\/lightweight-charts\//.test(id)) return "vendor-charts";
+          return undefined;
+        },
+      },
+    },
+  },
   server: {
     port: 5173,
     fs: { allow: [resolve(__dirname, "../..")] },

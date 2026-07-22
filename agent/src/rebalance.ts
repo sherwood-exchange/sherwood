@@ -15,7 +15,7 @@ const BASE_RPC = process.env.BASE_RPC || "https://mainnet.base.org";
 const RELAY = "https://api.relay.link";
 const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" as Address;
 const REVENUE_WALLET = (process.env.REVENUE_WALLET || "0x5e8f2599169a9f1d088165076aa323b6ce6623ce") as Address; // Sherwood Exchange (ACP)
-const EXEC_ADDR = (process.env.EXEC_ADDRESS || (process.env.EXEC_PRIVATE_KEY ? privateKeyToAccount((process.env.EXEC_PRIVATE_KEY.startsWith("0x") ? process.env.EXEC_PRIVATE_KEY : `0x${process.env.EXEC_PRIVATE_KEY}`) as `0x${string}`).address : "0x035683A78A5B282FB043CDe8c50e2818b7e6C879")) as Address;
+const EXEC_ADDR = (process.env.EXEC_ADDRESS || (process.env.EXEC_PRIVATE_KEY ? privateKeyToAccount((process.env.EXEC_PRIVATE_KEY.startsWith("0x") ? process.env.EXEC_PRIVATE_KEY : `0x${process.env.EXEC_PRIVATE_KEY}`) as `0x${string}`).address : "0xab374DF89536baFeCC40a1730C5fF3e4Ca11b827")) as Address;
 
 const AVG_SWAP_ETH = Number(process.env.SWAP_SIZE_ETH ?? "0.0005") + 0.00003; // size + ~gas
 const MIN_ETH = Number(process.env.INVENTORY_MIN_ETH ?? "0.001");
