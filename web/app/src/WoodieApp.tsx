@@ -1111,7 +1111,7 @@ function PortfolioTab({ tradable, priceUsdOf, marketOf, totalUsd, clear, shielde
     <div className="pf">
       <header className="disc-head">
         <h1 className="disc-title">Wallet</h1>
-        {address && <button className="pf-addr" onClick={copyAddr}>{copied ? "✓ Copied" : <>{shortAddr(address)} <IconCopy /></>}</button>}
+        {address && <button className="wpf-addr" onClick={copyAddr}>{copied ? "✓ Copied" : <>{shortAddr(address)} <IconCopy /></>}</button>}
       </header>
       <div className="pf-total">
         <div className="pf-total-l">Total value</div>
@@ -1119,7 +1119,7 @@ function PortfolioTab({ tradable, priceUsdOf, marketOf, totalUsd, clear, shielde
         {wChg != null && <div className="pf-total-chg"><ChangePill v={wChg} big /> <span className="muted">24h</span></div>}
       </div>
 
-      <div className="pf-actions">
+      <div className="wpf-actions">
         {acts.map((a) => (
           <button key={a.k} className="pf-act" onClick={() => setAct(a.k)}>
             <span className="pf-act-ic">{a.icon}</span><span>{a.label}</span>

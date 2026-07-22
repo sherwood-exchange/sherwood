@@ -1417,11 +1417,11 @@ html, body, #root { max-width: 100%; }
 .xcc-meta { font: 500 11px var(--mono); }
 .xcc-note { margin: 0; font-size: 12px; line-height: 1.5; }
 
-/* Portfolio → Wallet */
-.pf-addr { display: inline-flex; align-items: center; gap: 6px; padding: 6px 11px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); color: var(--moon-dim); font: 600 12px var(--mono); cursor: pointer; }
-.pf-addr:hover { color: var(--moon); border-color: var(--line-2); }
+/* Portfolio → Wallet (WoodieApp tab — wpf-* to stay clear of the desktop Portfolio's pf-*) */
+.wpf-addr { display: inline-flex; align-items: center; gap: 6px; padding: 6px 11px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); color: var(--moon-dim); font: 600 12px var(--mono); cursor: pointer; }
+.wpf-addr:hover { color: var(--moon); border-color: var(--line-2); }
 .disc-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.pf-actions { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.wpf-actions { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
 .pf-act { display: flex; flex-direction: column; align-items: center; gap: 7px; padding: 14px 4px; border-radius: 14px; border: 1px solid var(--line); background: var(--panel); color: var(--moon); font: 600 12px var(--sans); cursor: pointer; transition: border-color .12s, transform .06s; }
 .pf-act:hover { border-color: var(--line-2); }
 .pf-act:active { transform: scale(0.97); }
