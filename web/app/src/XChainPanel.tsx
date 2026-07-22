@@ -9,7 +9,8 @@
 // Nothing on the way out links to the user's wallet or the shielded pool.
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { NetworkConfig, TokenInfo } from "./config";
-import { createWalletClient, createPublicClient, custom, defineChain, http, parseEther, formatEther, formatUnits, type Address } from "viem";
+import { createWalletClient, createPublicClient, custom, defineChain, http, parseEther, parseUnits, formatEther, formatUnits, type Address } from "viem";
+import { zeroexEnabled, zeroexPrice, zeroexQuote, ZEROEX_CHAINS, ZEROEX_NATIVE } from "./zeroex";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { chainById } from "@sherwood/client";
 import { rpcTransport } from "./config";
@@ -43,20 +44,29 @@ const fmtLockTime = (v: string | number) => {
   return isNaN(d.getTime()) ? "" : d.toLocaleTimeString();
 };
 
-const T = (id: string, symbol: string, chain: string, name: string, icon?: string): XToken =>
-  ({ id, symbol, chain, name, icon: icon ?? `https://api.houdiniswap.com/assets/tokens/${symbol.toLowerCase()}-${chain}.png` });
-/** Curated quick picks shown before any search. ETH@Base first — it's the Sherwood gateway. */
+const T = (id: string, symbol: string, chain: string, name: string, extra?: Partial<XToken>): XToken =>
+  ({ id, symbol, chain, name, icon: `https://api.houdiniswap.com/assets/tokens/${symbol.toLowerCase()}-${chain}.png`, ...extra });
+/** Curated quick picks shown before any search. ETH@Base first — it's the Sherwood gateway.
+ *  address/decimals on the EVM entries feed the 0x same-chain routes. */
 const POPULAR: XToken[] = [
-  T("6689b73ec90e45f3b3e51590", "ETH", "base", "Ether (Base) — Sherwood gateway"),
+  T("6689b73ec90e45f3b3e51590", "ETH", "base", "Ether (Base) — Sherwood gateway", { decimals: 18 }),
   T("6689b73ec90e45f3b3e51551", "BTC", "bitcoin", "Bitcoin"),
   T("6689b73ec90e45f3b3e5155c", "XMR", "monero", "Monero"),
   T("6689b73ec90e45f3b3e51558", "SOL", "solana", "Solana"),
-  T("6689b73ec90e45f3b3e51566", "ETH", "ethereum", "Ether"),
+  T("6689b73ec90e45f3b3e51566", "ETH", "ethereum", "Ether", { decimals: 18 }),
   T("6689b73ec90e45f3b3e5155d", "USDT", "tron", "Tether (Tron)"),
-  T("6689b757c90e45f3b3e51805", "USDC", "base", "USDC (Base)"),
+  T("6689b757c90e45f3b3e51805", "USDC", "base", "USDC (Base)", { address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", decimals: 6 }),
   T("6689b73ec90e45f3b3e5156c", "LTC", "litecoin", "Litecoin"),
   T("6689b73ec90e45f3b3e51563", "DOGE", "doge", "Dogecoin"),
 ];
+
+// ---- 0x (Matcha) same-chain routes ----
+const ZX_ID = "0x-matcha"; // synthetic quoteId marking the 0x route in the list
+const ERC20_APPROVE_ABI = [{ type: "function", name: "approve", stateMutability: "nonpayable", inputs: [{ type: "address" }, { type: "uint256" }], outputs: [{ type: "bool" }] }] as const;
+const MAX_U256 = (1n << 256n) - 1n;
+/** 0x token identifier for a catalog token: contract address, or the native sentinel. */
+const zxAddr = (t: XToken): string | null =>
+  t.address && /^0x[0-9a-fA-F]{40}$/.test(t.address) ? t.address : t.address ? null : ZEROEX_NATIVE;
 
 const TYPE_BADGE: Record<string, string> = { private: "Private", standard: "Standard CEX", dex: "On-chain DEX" };
 
@@ -213,12 +223,34 @@ export function XChainPanel({ net, address, isConnected, onConnect, walletProvid
     deb.current = setTimeout(async () => {
       setQuoting(true);
       try {
-        const qs = await xchainQuotesAll(net, from.id, to.id, n, {
-          ...(fixed ? { fixed: true, refundAddress: refundOk ? refund.trim() : undefined } : {}),
-          ...(xmrHop ? { useXmr: true } : {}),
-        });
-        setQuotes(qs);
-        if (!qs.length) setQErr(fixed ? "No fixed-rate route for this pair/amount — try floating." : "No route for this pair/amount right now.");
+        // 0x (Matcha) same-chain route in parallel with Houdini — only when the pair sits on one
+        // 0x-supported EVM chain and we know both token contracts.
+        const zx = (async (): Promise<XQuote | null> => {
+          try {
+            if (from.chain.toLowerCase() !== to.chain.toLowerCase()) return null;
+            const sell = zxAddr(from), buy = zxAddr(to);
+            if (!sell || !buy || from.decimals == null) return null;
+            const info = (await xchainChains(net)).get(from.chain.toLowerCase());
+            if (info?.kind !== "evm" || !info.chainId || !ZEROEX_CHAINS.has(info.chainId)) return null;
+            if (!(await zeroexEnabled(net))) return null;
+            const p = await zeroexPrice(net, { chainId: info.chainId, sellToken: sell, buyToken: buy, sellAmount: parseUnits(String(n), from.decimals) });
+            if (!p.liquidityAvailable || p.buyAmount <= 0n) return null;
+            return {
+              quoteId: ZX_ID, type: "dex", swapName: "0x · Matcha",
+              amountIn: n, amountOut: Number(formatUnits(p.buyAmount, to.decimals ?? 18)), duration: 1,
+            } as XQuote;
+          } catch { return null; }
+        })();
+        const [hres, zxq] = await Promise.all([
+          xchainQuotesAll(net, from.id, to.id, n, {
+            ...(fixed ? { fixed: true, refundAddress: refundOk ? refund.trim() : undefined } : {}),
+            ...(xmrHop ? { useXmr: true } : {}),
+          }).then((qs) => ({ qs, err: null as any }), (e) => ({ qs: [] as XQuote[], err: e })),
+          zx,
+        ]);
+        const all = zxq ? [...hres.qs, zxq] : hres.qs;
+        setQuotes(all);
+        if (!all.length) setQErr(hres.err ? friendlyErr(hres.err) : fixed ? "No fixed-rate route for this pair/amount — try floating." : "No route for this pair/amount right now.");
       } catch (e: any) { setQErr(friendlyErr(e)); }
       finally { setQuoting(false); }
     }, 700);
@@ -279,6 +311,31 @@ export function XChainPanel({ net, address, isConnected, onConnect, walletProvid
     setCreating(true); setQErr(null);
     try {
       let o: XOrder & { toSherwood?: boolean };
+      if (sel.quoteId === ZX_ID) {
+        // 0x (Matcha) same-chain swap — user's wallet executes; output lands at the taker.
+        if (!isConnected || !address || !walletProvider) { onConnect(); setCreating(false); return; }
+        if (dest.trim().toLowerCase() !== address.toLowerCase())
+          throw new Error("The 0x route delivers to your connected wallet — set the receiving address to it, or pick another route.");
+        const info = (await xchainChains(net)).get(from.chain.toLowerCase());
+        if (info?.kind !== "evm" || !info.chainId) throw new Error("0x route needs an EVM chain.");
+        const srcChain = defineChain({ id: info.chainId, name: info.name, nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 }, rpcUrls: { default: { http: [] } } });
+        const wc = createWalletClient({ account: address as Address, chain: srcChain, transport: custom(walletProvider) });
+        try { await walletProvider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x" + info.chainId.toString(16) }] }); } catch { /* manual */ }
+        const q = await zeroexQuote(net, {
+          chainId: info.chainId, sellToken: zxAddr(from)!, buyToken: zxAddr(to)!,
+          sellAmount: parseUnits(String(Number(amt)), from.decimals ?? 18), taker: address, slippageBps: 100,
+        });
+        const pc = createPublicClient({ chain: srcChain, transport: custom(walletProvider) });
+        if (q.approvalSpender) {
+          const ah = await wc.writeContract({ address: from.address as Address, abi: ERC20_APPROVE_ABI, functionName: "approve", args: [q.approvalSpender, MAX_U256], chain: srcChain });
+          await pc.waitForTransactionReceipt({ hash: ah });
+        }
+        const h = await wc.sendTransaction({ to: q.tx.to, data: q.tx.data, value: q.tx.value, chain: srcChain });
+        await pc.waitForTransactionReceipt({ hash: h });
+        toast({ kind: "ok", msg: `Swapped via 0x — ≈ ${fmt(Number(formatUnits(q.buyAmount, to.decimals ?? 18)))} ${to.symbol} in your wallet (tx ${h.slice(0, 10)}…).` });
+        setAmt(""); setCreating(false);
+        return;
+      }
       if (sel.type === "dex") {
         // On-chain route: the USER's wallet broadcasts on the source chain.
         if (!isConnected || !address || !walletProvider) { onConnect(); setCreating(false); return; }

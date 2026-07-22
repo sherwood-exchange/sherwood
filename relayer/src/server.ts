@@ -16,6 +16,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import { config } from "./config.js";
 import { screenAddress } from "./screen.js";
 import { handleXchain } from "./xchain.js";
+import { handleZeroex } from "./zeroex.js";
 import { SHERWOOD_ABI } from "../../client/src/abi.js";
 import { deserializeBuiltTx } from "../../client/src/serde.js";
 import { extDataHash } from "../../client/src/extdata.js";
@@ -230,6 +231,12 @@ const server = createServer(async (req, res) => {
     const limited = xchainRateLimit(req, Date.now());
     if (limited) return json(res, 429, { error: "rate limited", detail: limited });
     if (await handleXchain(req, res, clientIp(req))) return;
+  }
+  // 0x (Matcha) swap proxy — same roomy limiter as the ramp UI.
+  if ((req.url ?? "").startsWith("/0x/")) {
+    const limited = xchainRateLimit(req, Date.now());
+    if (limited) return json(res, 429, { error: "rate limited", detail: limited });
+    if (await handleZeroex(req, res)) return;
   }
   return json(res, 404, { error: "not found" });
 });

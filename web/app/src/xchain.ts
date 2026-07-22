@@ -99,8 +99,9 @@ export async function xchainQuotesAll(net: NetworkConfig, fromId: string, toId: 
   return ((j.quotes ?? []) as XQuote[]).filter((q) => q.amountOut > 0);
 }
 
-/** A token from Houdini's full multichain catalog (searchable picker). */
-export interface XToken { id: string; symbol: string; chain: string; name?: string; icon?: string; hasCex?: boolean; hasDex?: boolean }
+/** A token from Houdini's full multichain catalog (searchable picker). `address`/`decimals` are
+ *  the on-chain contract details (present in the catalog) — used for 0x same-chain routes. */
+export interface XToken { id: string; symbol: string; chain: string; name?: string; icon?: string; hasCex?: boolean; hasDex?: boolean; address?: string; decimals?: number }
 /** Search the catalog through the proxy. CEX-capable tokens only by default — cross-chain routing needs the CEX rail. */
 export async function xchainTokenSearch(net: NetworkConfig, term: string, opts?: { anyRail?: boolean; chain?: string; pageSize?: number }): Promise<XToken[]> {
   const qs = new URLSearchParams({ pageSize: String(opts?.pageSize ?? 30) });
@@ -110,6 +111,7 @@ export async function xchainTokenSearch(net: NetworkConfig, term: string, opts?:
   const j = await req(net, `/tokens?${qs}`);
   return ((j.tokens ?? []) as any[]).map((t) => ({
     id: t.id, symbol: t.symbol, chain: t.chain, name: t.name, icon: t.icon, hasCex: t.hasCex, hasDex: t.hasDex,
+    address: t.address, decimals: t.decimals,
   }));
 }
 
