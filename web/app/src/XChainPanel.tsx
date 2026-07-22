@@ -301,7 +301,15 @@ export function XChainPanel({ net, address, isConnected, onConnect, walletProvid
     xchainValidAddress(net, from.chain, a).then((ok) => { if (live) setRefundOk(ok); });
     return () => { live = false; };
   }, [refund, needRefund, from.chain, address, net]);
-  const shown = expanded ? sorted.slice(0, 30) : sorted.slice(0, 3);
+  // Collapsed view = top routes by the chosen sort, but always surface the 0x/Matcha route even
+  // when it ranks below the fold (its net-of-fee quote often sits mid-pack among near-identical
+  // aggregator rows) — otherwise the flagship integration looks like it vanished at larger sizes.
+  const shown = useMemo(() => {
+    if (expanded) return sorted.slice(0, 30);
+    const top = sorted.slice(0, 3);
+    const zx = sorted.find((q) => q.quoteId === ZX_ID);
+    return zx && !top.includes(zx) ? [...top, zx] : top;
+  }, [sorted, expanded]);
   const toSherwood = to.id === ETH_BASE_ID;
 
   function flip() { const f = from; setFrom(to); setTo(f); setDest(""); setDestOk(null); }
